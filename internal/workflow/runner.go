@@ -11,12 +11,12 @@ import (
 
 // Request describes a workflow execution triggered by a GitHub event.
 type Request struct {
-	Kind         string // "push_deploy" or "repo_onboarding"
-	TenantName   string
-	TenantNS     string
-	RepoFullName string
-	Ref          string
-	HeadSHA      string
+	Kind            string // "push_deploy" or "repo_onboarding"
+	TenantName      string
+	TenantNamespace string
+	RepoFullName    string
+	Ref             string
+	HeadSHA         string
 }
 
 // Result holds the outcome of a workflow run.

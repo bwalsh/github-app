@@ -23,17 +23,35 @@ func New(q *queue.Queue, gh githubclient.Client, wf workflow.Runner) *Worker {
 	return &Worker{queue: q, github: gh, workflow: wf}
 }
 
+// maxConcurrentJobs defines the maximum number of jobs this worker will
+// process concurrently. This prevents unbounded goroutine growth under load.
+const maxConcurrentJobs = 10
+
 // Start processes jobs from the queue until ctx is cancelled.
-// Each job is handled in its own goroutine for async execution.
+// Jobs are handled asynchronously with a bounded level of concurrency.
 func (w *Worker) Start(ctx context.Context) {
 	log.Println("[worker] started")
+
+	// Semaphore channel to limit the number of concurrent process goroutines.
+	sem := make(chan struct{}, maxConcurrentJobs)
+
 	for {
 		select {
 		case <-ctx.Done():
 			log.Println("[worker] shutdown")
 			return
 		case job := <-w.queue.Jobs():
-			go w.process(ctx, job)
+			// Acquire a slot or exit if context is cancelled while waiting.
+			select {
+			case sem <- struct{}{}:
+				go func(job *queue.Job) {
+					defer func() { <-sem }()
+					w.process(ctx, job)
+				}(job)
+			case <-ctx.Done():
+				log.Println("[worker] shutdown")
+				return
+			}
 		}
 	}
 }
