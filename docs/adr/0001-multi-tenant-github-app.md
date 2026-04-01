@@ -138,11 +138,13 @@ sequenceDiagram
 
 ## Status Lifecycle
 
-| Internal | Checks | Status |
-|--------|--------|--------|
+This table maps internal states to GitHub Check run status and the commit-status fallback state.
+
+| Internal | Check run status | Commit status state |
+|--------|------------------|---------------------|
 | accepted | in_progress | pending |
-| success | completed | success |
-| failure | completed | failure |
+| success  | completed   | success |
+| failure  | completed   | failure |
 
 ---
 
