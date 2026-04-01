@@ -323,4 +323,4 @@ Rejected because:
 6. Define how GitHub App credentials are stored and referenced in Kubernetes
 7. Add a local-development fallback issuer strategy for non-public environments
 8. Add deployment documentation for exposing the webhook endpoint to GitHub
-
+9. Add targets to makefile for deploying to Kind and validating the Helm chart as well as cleaning up resources
