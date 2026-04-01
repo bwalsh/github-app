@@ -133,6 +133,41 @@ func TestHandleWebhook_Push_NoTenant(t *testing.T) {
 	}
 }
 
+func TestHandleWebhook_Push_NonMainRefIgnored(t *testing.T) {
+	reg := tenant.New()
+	reg.Register(
+		tenant.Key{InstallationID: 10, RepositoryID: 20},
+		&tenant.Tenant{Name: "acme", Namespace: "ns-acme"},
+	)
+	q := queue.New(8)
+	h := handler.NewWithDeps("secret", reg, q)
+
+	payload := `{
+		"ref":"refs/heads/feature-x",
+		"after":"abc123",
+		"installation":{"id":10},
+		"repository":{"id":20,"full_name":"acme/backend"},
+		"sender":{"login":"alice"}
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/webhook", strings.NewReader(payload))
+	req.Header.Set("X-GitHub-Event", "push")
+	w := httptest.NewRecorder()
+
+	h.HandleWebhook(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200 for ignored ref, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "ignored push") {
+		t.Errorf("expected ignored push response, got: %s", w.Body.String())
+	}
+	select {
+	case <-q.Jobs():
+		t.Error("expected no job enqueued for non-main ref")
+	default:
+	}
+}
+
 // --- Repo Onboarding ---
 
 func TestHandleWebhook_RepoOnboarding_Added(t *testing.T) {
@@ -210,3 +245,27 @@ func TestHandleWebhook_RepoOnboarding_Removed_Ignored(t *testing.T) {
 	}
 }
 
+func TestHandleWebhook_RepoOnboarding_QueueFullReturns503(t *testing.T) {
+	reg := tenant.New()
+	q := queue.New(1)
+	h := handler.NewWithDeps("secret", reg, q)
+
+	payload := `{
+		"action":"added",
+		"installation":{"id":10},
+		"repositories_added":[
+			{"id":30,"full_name":"acme/new-service"},
+			{"id":31,"full_name":"acme/another-service"}
+		],
+		"sender":{"login":"alice"}
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/webhook", strings.NewReader(payload))
+	req.Header.Set("X-GitHub-Event", "installation_repositories")
+	w := httptest.NewRecorder()
+
+	h.HandleWebhook(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 when onboarding queue is full, got %d", w.Code)
+	}
+}

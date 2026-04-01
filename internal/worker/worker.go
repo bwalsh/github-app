@@ -73,12 +73,12 @@ func (w *Worker) process(ctx context.Context, job *queue.Job) {
 
 	// Step 2: Run the (stubbed) workflow
 	req := &workflow.Request{
-		Kind:         string(job.Kind),
-		TenantName:   job.TenantName,
+		Kind:            string(job.Kind),
+		TenantName:      job.TenantName,
 		TenantNamespace: job.TenantNamespace,
-		RepoFullName: job.RepoFullName,
-		Ref:          job.Ref,
-		HeadSHA:      job.HeadSHA,
+		RepoFullName:    job.RepoFullName,
+		Ref:             job.Ref,
+		HeadSHA:         job.HeadSHA,
 	}
 
 	result, wfErr := w.workflow.Run(ctx, req)
@@ -113,4 +113,3 @@ func checkRunName(kind queue.Kind) string {
 		return string(kind)
 	}
 }
-

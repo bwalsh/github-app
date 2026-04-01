@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bwalsh/github-app/internal/handler"
 )
@@ -56,25 +59,35 @@ func TestBuildMux_WiresWebhookRoute(t *testing.T) {
 	}
 }
 
-func TestRun_UsesAddrAndReturnsError(t *testing.T) {
-	expectedErr := errors.New("listen failed")
-	called := false
-	gotAddr := ""
+func TestRun_ContextCancellationShutsDownServer(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	err := run(":5555", http.NewServeMux(), func(addr string, _ http.Handler) error {
-		called = true
-		gotAddr = addr
-		return expectedErr
-	})
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- run(ctx, "127.0.0.1:0", http.NewServeMux())
+	}()
 
-	if !called {
-		t.Fatal("expected listen function to be called")
-	}
-	if gotAddr != ":5555" {
-		t.Fatalf("addr: got %q, want %q", gotAddr, ":5555")
-	}
-	if !errors.Is(err, expectedErr) {
-		t.Fatalf("error: got %v, want %v", err, expectedErr)
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("expected nil error on graceful shutdown, got %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for run to return after cancellation")
 	}
 }
 
+func TestRun_InvalidAddrReturnsError(t *testing.T) {
+	err := run(context.Background(), "bad-addr", http.NewServeMux())
+	if err == nil {
+		t.Fatal("expected error for invalid address")
+	}
+	var addrErr *net.OpError
+	if !errors.As(err, &addrErr) {
+		t.Fatalf("expected net.OpError, got %T (%v)", err, err)
+	}
+}

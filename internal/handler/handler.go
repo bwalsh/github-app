@@ -50,6 +50,8 @@ type Handler struct {
 	queue    *queue.Queue
 }
 
+const deployRef = "refs/heads/main"
+
 // New creates a Handler with only a webhook secret (for backward compatibility).
 func New(secret string) *Handler {
 	return &Handler{secret: secret}
@@ -94,6 +96,14 @@ func (h *Handler) handlePush(w http.ResponseWriter, body []byte) {
 
 	log.Printf("[handler] push installation=%d repo=%s ref=%s sha=%s sender=%s",
 		p.Installation.ID, p.Repository.FullName, p.Ref, p.After, p.Sender.Login)
+
+	if p.Ref != deployRef {
+		log.Printf("[handler] push ref=%s ignored for repo=%s (deploy ref=%s)",
+			p.Ref, p.Repository.FullName, deployRef)
+		fmt.Fprintf(w, "ignored push: repo=%s ref=%s (deploy ref=%s)\n",
+			p.Repository.FullName, p.Ref, deployRef)
+		return
+	}
 
 	key := tenant.Key{InstallationID: p.Installation.ID, RepositoryID: p.Repository.ID}
 	t, ok := h.lookupTenant(key, p.Repository.FullName)
@@ -169,6 +179,8 @@ func (h *Handler) handleInstallationRepositories(w http.ResponseWriter, body []b
 		if h.queue != nil {
 			if err := h.queue.Enqueue(job); err != nil {
 				log.Printf("[handler] queue full for onboarding %s: %v", repo.FullName, err)
+				http.Error(w, "queue full", http.StatusServiceUnavailable)
+				return
 			}
 		}
 	}

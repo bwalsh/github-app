@@ -3,12 +3,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	githubclient "github.com/bwalsh/github-app/internal/github"
 	"github.com/bwalsh/github-app/internal/handler"
@@ -39,7 +41,7 @@ func main() {
 
 	addr := ":" + port
 	log.Printf("github-app listening on %s", addr)
-	if err := run(addr, mux, http.ListenAndServe); err != nil {
+	if err := run(ctx, addr, mux); err != nil {
 		log.Fatalf("server error: %v", err)
 	}
 }
@@ -61,6 +63,30 @@ func buildMux(h *handler.Handler) *http.ServeMux {
 	return mux
 }
 
-func run(addr string, handler http.Handler, listen func(string, http.Handler) error) error {
-	return listen(addr, handler)
+func run(ctx context.Context, addr string, handler http.Handler) error {
+	server := &http.Server{Addr: addr, Handler: handler}
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- server.ListenAndServe()
+	}()
+
+	select {
+	case err := <-errCh:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			return err
+		}
+		err := <-errCh
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	}
 }
