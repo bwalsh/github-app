@@ -19,6 +19,19 @@ LDFLAGS := -s -w \
 
 GO      := go
 GOFLAGS := -trimpath
+HELM    := helm
+KUBECTL := kubectl
+KIND    := kind
+
+KIND_CLUSTER_NAME ?= github-app
+K8S_NAMESPACE     ?= github-app
+HELM_RELEASE      ?= github-app
+HELM_CHART_PATH   ?= charts/github-app
+HOST              ?= github-app.localdev.me
+TLS_SECRET        ?= github-app-tls
+IMG_REPO          ?= github-app
+IMG_TAG           ?= dev
+FULL_IMAGE        ?= $(IMG_REPO):$(IMG_TAG)
 
 # Platforms for release builds
 PLATFORMS := \
@@ -87,3 +100,73 @@ release: ## Build release binaries for all platforms into dist/
 .PHONY: clean
 clean: ## Remove build artifacts
 	@rm -rf $(BIN_DIR) $(DIST_DIR) coverage.html
+
+.PHONY: helm-validate
+helm-validate: ## Lint and template the Helm chart
+	$(HELM) lint $(HELM_CHART_PATH)
+	$(HELM) template $(HELM_RELEASE) $(HELM_CHART_PATH) \
+		--set image.repository=$(IMG_REPO) \
+		--set image.tag=$(IMG_TAG) >/dev/null
+
+.PHONY: docker-build
+docker-build: ## Build local container image for github-app
+	docker build -t $(FULL_IMAGE) .
+
+.PHONY: kind-load-image
+kind-load-image: docker-build ## Load local container image into Kind nodes
+	$(KIND) load docker-image $(FULL_IMAGE) --name $(KIND_CLUSTER_NAME)
+
+.PHONY: kind-bootstrap
+kind-bootstrap: ## Create Kind cluster and install ingress-nginx + cert-manager
+	$(KIND) get clusters | grep -q "^$(KIND_CLUSTER_NAME)$$" || $(KIND) create cluster --name $(KIND_CLUSTER_NAME)
+	$(KUBECTL) apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+	$(KUBECTL) wait --namespace ingress-nginx --for=condition=ready pod --selector=app.kubernetes.io/component=controller --timeout=180s
+	$(KUBECTL) apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.18.2/cert-manager.yaml
+	$(KUBECTL) wait --for=condition=Available --timeout=180s deployment/cert-manager -n cert-manager
+	$(KUBECTL) wait --for=condition=Available --timeout=180s deployment/cert-manager-webhook -n cert-manager
+	$(KUBECTL) wait --for=condition=Available --timeout=180s deployment/cert-manager-cainjector -n cert-manager
+
+.PHONY: kind-install-issuers
+kind-install-issuers: ## Install ClusterIssuer manifests (staging, production, local fallback)
+	$(KUBECTL) apply -f deploy/issuers/letsencrypt-staging.yaml
+	$(KUBECTL) apply -f deploy/issuers/letsencrypt-production.yaml
+	$(KUBECTL) apply -f deploy/issuers/selfsigned-local.yaml
+
+.PHONY: kind-create-secrets
+kind-create-secrets: ## Create/update app secrets in Kubernetes from environment variables
+	$(KUBECTL) create namespace $(K8S_NAMESPACE) --dry-run=client -o yaml | $(KUBECTL) apply -f -
+	$(KUBECTL) -n $(K8S_NAMESPACE) create secret generic github-app-secrets \
+		--from-literal=github-webhook-secret="$(GITHUB_WEBHOOK_SECRET)" \
+		--from-literal=github-app-id="$(GITHUB_APP_ID)" \
+		--from-literal=github-app-installation-id="$(GITHUB_APP_INSTALLATION_ID)" \
+		--from-literal=github-app-private-key="$(GITHUB_APP_PRIVATE_KEY)" \
+		--dry-run=client -o yaml | $(KUBECTL) apply -f -
+
+.PHONY: kind-deploy-staging
+kind-deploy-staging: kind-load-image ## Deploy chart using Let’s Encrypt staging issuer
+	$(KUBECTL) create namespace $(K8S_NAMESPACE) --dry-run=client -o yaml | $(KUBECTL) apply -f -
+	$(HELM) upgrade --install $(HELM_RELEASE) $(HELM_CHART_PATH) \
+		--namespace $(K8S_NAMESPACE) \
+		--set image.repository=$(IMG_REPO) \
+		--set image.tag=$(IMG_TAG) \
+		--set ingress.host=$(HOST) \
+		--set ingress.tls.secretName=$(TLS_SECRET) \
+		--set certManager.localFallbackIssuer.enabled=false \
+		--set certManager.clusterIssuer.name=letsencrypt-staging
+
+.PHONY: kind-deploy-local
+kind-deploy-local: kind-load-image ## Deploy chart using local self-signed fallback issuer
+	$(KUBECTL) create namespace $(K8S_NAMESPACE) --dry-run=client -o yaml | $(KUBECTL) apply -f -
+	$(HELM) upgrade --install $(HELM_RELEASE) $(HELM_CHART_PATH) \
+		--namespace $(K8S_NAMESPACE) \
+		--set image.repository=$(IMG_REPO) \
+		--set image.tag=$(IMG_TAG) \
+		--set ingress.host=$(HOST) \
+		--set ingress.tls.secretName=$(TLS_SECRET) \
+		--set certManager.localFallbackIssuer.enabled=true \
+		--set certManager.localFallbackIssuer.name=selfsigned-local
+
+.PHONY: kind-clean
+kind-clean: ## Uninstall Helm release and delete Kind cluster
+	-$(HELM) uninstall $(HELM_RELEASE) -n $(K8S_NAMESPACE)
+	-$(KIND) delete cluster --name $(KIND_CLUSTER_NAME)

@@ -53,6 +53,18 @@ make release   # Build release binaries for Linux, macOS, and Windows
 make clean     # Remove build artifacts
 ```
 
+## Kubernetes Deployment (Kind + Helm + cert-manager)
+
+This repository includes a Helm chart at `charts/github-app` and bootstrap automation for local Kind clusters.
+The Kind deploy targets build `github-app:dev` locally and load it into the Kind cluster before running Helm.
+
+- Bootstrap guide: [`docs/deploy/kind-helm-cert-manager.md`](docs/deploy/kind-helm-cert-manager.md)
+- Webhook exposure guide: [`docs/deploy/github-webhook-exposure.md`](docs/deploy/github-webhook-exposure.md)
+- Issuer manifests:
+  - `deploy/issuers/letsencrypt-staging.yaml`
+  - `deploy/issuers/letsencrypt-production.yaml`
+  - `deploy/issuers/selfsigned-local.yaml`
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
