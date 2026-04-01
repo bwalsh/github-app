@@ -75,7 +75,7 @@ func (w *Worker) process(ctx context.Context, job *queue.Job) {
 	req := &workflow.Request{
 		Kind:         string(job.Kind),
 		TenantName:   job.TenantName,
-		TenantNS:     job.TenantNamespace,
+		TenantNamespace: job.TenantNamespace,
 		RepoFullName: job.RepoFullName,
 		Ref:          job.Ref,
 		HeadSHA:      job.HeadSHA,
@@ -84,13 +84,14 @@ func (w *Worker) process(ctx context.Context, job *queue.Job) {
 	result, wfErr := w.workflow.Run(ctx, req)
 
 	// Step 3: Update check run → status: completed
-	var finalStatus githubclient.CheckStatus
+	// Default to failure; override only on explicit success.
+	finalStatus := githubclient.CheckStatus{Status: "completed", Conclusion: "failure"}
 	if wfErr != nil {
 		log.Printf("[worker] workflow error: %v", wfErr)
-		finalStatus = githubclient.CheckStatus{Status: "completed", Conclusion: "failure"}
+	} else if result == nil {
+		log.Printf("[worker] workflow returned nil result without error")
 	} else if !result.Success {
 		log.Printf("[worker] workflow reported failure: %s", result.Message)
-		finalStatus = githubclient.CheckStatus{Status: "completed", Conclusion: "failure"}
 	} else {
 		finalStatus = githubclient.CheckStatus{Status: "completed", Conclusion: "success"}
 	}
