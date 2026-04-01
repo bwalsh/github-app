@@ -28,7 +28,7 @@ The system must support:
 - PR opened/updated
 - Workflow triggered
 - Check run posted:
-  - in_progress → success/failure
+  - status: in_progress → status: completed (conclusion: success/failure)
 
 ### Push Deployment
 - Push to main
@@ -64,9 +64,9 @@ The system must support:
 - Optional commit status fallback
 
 Lifecycle:
-1. create check (in_progress)
+1. create check (status: in_progress)
 2. run workflow
-3. update check (success/failure)
+3. update check (status: completed, conclusion: success/failure)
 
 ### Async Processing
 - webhook → queue → worker
@@ -129,9 +129,9 @@ sequenceDiagram
     WH->>RT: normalized event
     RT->>Q: enqueue
     Q->>WK: deliver
-    WK->>API: create check (in_progress)
+    WK->>API: create check (status: in_progress)
     WK->>WK: run workflow
-    WK->>API: update check (success/failure)
+    WK->>API: update check (status: completed, conclusion: success/failure)
 ```
 
 ---
