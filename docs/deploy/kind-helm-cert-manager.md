@@ -43,19 +43,22 @@ The chart reads app credentials and webhook secrets via Kubernetes Secret refere
 export GITHUB_WEBHOOK_SECRET='replace-me'
 export GITHUB_APP_ID='123456'
 export GITHUB_APP_INSTALLATION_ID='654321'
-export GITHUB_APP_PRIVATE_KEY="$(cat /path/to/private-key.pem)"
+export GITHUB_APP_PRIVATE_KEY_FILE='/path/to/private-key.pem'
 
 make kind-create-secrets
 ```
 
 This creates/updates the `github-app-secrets` Secret in namespace `github-app`.
 
+`kind-create-secrets` also accepts `GITHUB_APP_PRIVATE_KEY` directly for compatibility, but
+`GITHUB_APP_PRIVATE_KEY_FILE` is recommended to avoid brittle multiline shell handling.
+
 ### Secret schema consumed by the chart
 
 - `github-webhook-secret` -> `GITHUB_WEBHOOK_SECRET`
 - `github-app-id` -> `GITHUB_APP_ID`
 - `github-app-installation-id` -> `GITHUB_APP_INSTALLATION_ID`
-- `github-app-private-key` -> `GITHUB_APP_PRIVATE_KEY`
+- `github-app-private-key` -> `GITHUB_APP_PRIVATE_KEY_FILE` (recommended) or `GITHUB_APP_PRIVATE_KEY`
 
 > Do not commit secret values, PEM files, or rendered Secret manifests to Git.
 

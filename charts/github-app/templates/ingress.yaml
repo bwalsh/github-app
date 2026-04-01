@@ -5,6 +5,8 @@ metadata:
   name: {{ include "github-app.fullname" . }}
   labels:
     {{- include "github-app.labels" . | nindent 4 }}
+  {{- $hasIngressAnnotations := gt (len (default (dict) .Values.ingress.annotations)) 0 }}
+  {{- if or .Values.certManager.enabled $hasIngressAnnotations }}
   annotations:
     {{- if .Values.certManager.enabled }}
     cert-manager.io/cluster-issuer: {{ include "github-app.issuerName" . | quote }}
@@ -12,6 +14,7 @@ metadata:
     {{- with .Values.ingress.annotations }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
+  {{- end }}
 spec:
   ingressClassName: {{ .Values.ingress.className }}
   rules:

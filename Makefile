@@ -27,6 +27,7 @@ KIND_CLUSTER_NAME ?= github-app
 K8S_NAMESPACE     ?= github-app
 HELM_RELEASE      ?= github-app
 HELM_CHART_PATH   ?= charts/github-app
+INGRESS_NGINX_VERSION ?= controller-v1.13.3
 HOST              ?= github-app.localdev.me
 TLS_SECRET        ?= github-app-tls
 IMG_REPO          ?= github-app
@@ -119,7 +120,7 @@ kind-load-image: docker-build ## Load local container image into Kind nodes
 .PHONY: kind-bootstrap
 kind-bootstrap: ## Create Kind cluster and install ingress-nginx + cert-manager
 	$(KIND) get clusters | grep -q "^$(KIND_CLUSTER_NAME)$$" || $(KIND) create cluster --name $(KIND_CLUSTER_NAME)
-	$(KUBECTL) apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+	$(KUBECTL) apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/$(INGRESS_NGINX_VERSION)/deploy/static/provider/kind/deploy.yaml
 	$(KUBECTL) wait --namespace ingress-nginx --for=condition=ready pod --selector=app.kubernetes.io/component=controller --timeout=180s
 	$(KUBECTL) apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.18.2/cert-manager.yaml
 	$(KUBECTL) wait --for=condition=Available --timeout=180s deployment/cert-manager -n cert-manager
@@ -134,12 +135,23 @@ kind-install-issuers: ## Install ClusterIssuer manifests (staging, production, l
 
 .PHONY: kind-create-secrets
 kind-create-secrets: ## Create/update app secrets in Kubernetes from environment variables
-	$(KUBECTL) create namespace $(K8S_NAMESPACE) --dry-run=client -o yaml | $(KUBECTL) apply -f -
+	@set -eu; \
+	$(KUBECTL) create namespace $(K8S_NAMESPACE) --dry-run=client -o yaml | $(KUBECTL) apply -f -; \
+	tmp_dir="$$(mktemp -d)"; \
+	trap 'rm -rf "$$tmp_dir"' EXIT; \
+	printf '%s' "$${GITHUB_WEBHOOK_SECRET:?GITHUB_WEBHOOK_SECRET is required}" > "$$tmp_dir/github-webhook-secret"; \
+	printf '%s' "$${GITHUB_APP_ID:?GITHUB_APP_ID is required}" > "$$tmp_dir/github-app-id"; \
+	printf '%s' "$${GITHUB_APP_INSTALLATION_ID:?GITHUB_APP_INSTALLATION_ID is required}" > "$$tmp_dir/github-app-installation-id"; \
+	if [ -n "$${GITHUB_APP_PRIVATE_KEY_FILE:-}" ]; then \
+		cp "$$GITHUB_APP_PRIVATE_KEY_FILE" "$$tmp_dir/github-app-private-key"; \
+	else \
+		printf '%s' "$${GITHUB_APP_PRIVATE_KEY:?Set GITHUB_APP_PRIVATE_KEY or GITHUB_APP_PRIVATE_KEY_FILE}" > "$$tmp_dir/github-app-private-key"; \
+	fi; \
 	$(KUBECTL) -n $(K8S_NAMESPACE) create secret generic github-app-secrets \
-		--from-literal=github-webhook-secret="$(GITHUB_WEBHOOK_SECRET)" \
-		--from-literal=github-app-id="$(GITHUB_APP_ID)" \
-		--from-literal=github-app-installation-id="$(GITHUB_APP_INSTALLATION_ID)" \
-		--from-literal=github-app-private-key="$(GITHUB_APP_PRIVATE_KEY)" \
+		--from-file=github-webhook-secret="$$tmp_dir/github-webhook-secret" \
+		--from-file=github-app-id="$$tmp_dir/github-app-id" \
+		--from-file=github-app-installation-id="$$tmp_dir/github-app-installation-id" \
+		--from-file=github-app-private-key="$$tmp_dir/github-app-private-key" \
 		--dry-run=client -o yaml | $(KUBECTL) apply -f -
 
 .PHONY: kind-deploy-staging
