@@ -1,2 +1,62 @@
 # github-app
-App registration and Event handling
+
+A GitHub App for webhook event registration and handling, written in Go.
+
+## Features
+
+- Receives and processes GitHub App webhook events
+- Health check endpoint (`/healthz`)
+- Configurable via environment variables
+
+## Requirements
+
+- Go 1.21 or later
+
+## Installation
+
+```bash
+git clone https://github.com/bwalsh/github-app.git
+cd github-app
+make build
+```
+
+The compiled binary will be placed in `bin/github-app`.
+
+## Usage
+
+Set the required environment variables and run the binary:
+
+```bash
+export GITHUB_WEBHOOK_SECRET=your-secret
+export PORT=8080          # optional, defaults to 8080
+
+./bin/github-app
+```
+
+### Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/webhook` | `POST` | Receives GitHub webhook events |
+| `/healthz` | `GET` | Health check |
+
+## Development
+
+All development tasks are driven by the `Makefile`. Run `make help` for a full list of targets.
+
+```bash
+make build     # Compile the binary
+make test      # Run tests with race detection
+make coverage  # Generate HTML coverage report (coverage.html)
+make lint      # Run go vet
+make release   # Build release binaries for Linux, macOS, and Windows
+make clean     # Remove build artifacts
+```
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
