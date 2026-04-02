@@ -151,6 +151,16 @@ Validate service health:
 - In-cluster probe path is `/healthz`.
 - GitHub webhook endpoint path is `/webhook`.
 
+### Ingress resource naming (important for troubleshooting)
+
+The chart sets ingress `metadata.name` with `{{ include "github-app.fullname" . }}`.
+
+- Default behavior: ingress name is `<release-name>-<chart-name>` (for this chart, typically `$(HELM_RELEASE)-github-app`).
+- If `fullnameOverride` is set, ingress name becomes exactly that override value.
+- Because of this, do **not** assume the ingress is named exactly `$(HELM_RELEASE)` unless you explicitly set `fullnameOverride` that way.
+
+`make helm-status` already selects ingress resources using `app.kubernetes.io/instance=$(HELM_RELEASE)` labels, so it remains accurate regardless of default naming or `fullnameOverride`.
+
 ---
 
 ## 6) Operational notes

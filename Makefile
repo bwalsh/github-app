@@ -183,7 +183,13 @@ helm-deploy-local-tls: ## Deploy chart with pre-created TLS secret and cert-mana
 .PHONY: helm-status
 helm-status: ## Show release and Kubernetes resource status
 	$(KUBECTL) -n $(K8S_NAMESPACE) get deploy,pods,svc,ingress
-	$(KUBECTL) -n $(K8S_NAMESPACE) describe ingress $(HELM_RELEASE)
+	@INGRESS_NAMES="$$($(KUBECTL) -n $(K8S_NAMESPACE) get ingress -l app.kubernetes.io/instance=$(HELM_RELEASE) -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')"; \
+	if [ -n "$$INGRESS_NAMES" ]; then \
+		echo "Describing ingress resources for Helm release $(HELM_RELEASE):"; \
+		echo "$$INGRESS_NAMES" | xargs -r -n1 $(KUBECTL) -n $(K8S_NAMESPACE) describe ingress; \
+	else \
+		echo "No ingress resources found for app.kubernetes.io/instance=$(HELM_RELEASE) in namespace $(K8S_NAMESPACE)."; \
+	fi
 	$(KUBECTL) -n $(K8S_NAMESPACE) get secret $(TLS_SECRET)
 	$(HELM) -n $(K8S_NAMESPACE) status $(HELM_RELEASE)
 
