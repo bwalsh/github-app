@@ -28,6 +28,8 @@ K8S_NAMESPACE     ?= github-app
 HELM_RELEASE      ?= github-app
 HELM_CHART_PATH   ?= charts/github-app
 INGRESS_NGINX_VERSION ?= controller-v1.13.3
+KIND_INGRESS_WAIT_TIMEOUT ?= 300s
+KIND_CERT_MANAGER_WAIT_TIMEOUT ?= 300s
 HOST              ?= github-app.localdev.me
 TLS_SECRET        ?= github-app-tls
 IMG_REPO          ?= github-app
@@ -216,11 +218,11 @@ kind-load-image: docker-build ## Load local container image into Kind nodes
 kind-bootstrap: ## Create Kind cluster and install ingress-nginx + cert-manager
 	$(KIND) get clusters | grep -q "^$(KIND_CLUSTER_NAME)$$" || $(KIND) create cluster --name $(KIND_CLUSTER_NAME)
 	$(KUBECTL) apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/$(INGRESS_NGINX_VERSION)/deploy/static/provider/kind/deploy.yaml
-	$(KUBECTL) wait --namespace ingress-nginx --for=condition=ready pod --selector=app.kubernetes.io/component=controller --timeout=180s
+	$(KUBECTL) -n ingress-nginx rollout status deployment/ingress-nginx-controller --timeout=$(KIND_INGRESS_WAIT_TIMEOUT)
 	$(KUBECTL) apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.18.2/cert-manager.yaml
-	$(KUBECTL) wait --for=condition=Available --timeout=180s deployment/cert-manager -n cert-manager
-	$(KUBECTL) wait --for=condition=Available --timeout=180s deployment/cert-manager-webhook -n cert-manager
-	$(KUBECTL) wait --for=condition=Available --timeout=180s deployment/cert-manager-cainjector -n cert-manager
+	$(KUBECTL) wait --for=condition=Available --timeout=$(KIND_CERT_MANAGER_WAIT_TIMEOUT) deployment/cert-manager -n cert-manager
+	$(KUBECTL) wait --for=condition=Available --timeout=$(KIND_CERT_MANAGER_WAIT_TIMEOUT) deployment/cert-manager-webhook -n cert-manager
+	$(KUBECTL) wait --for=condition=Available --timeout=$(KIND_CERT_MANAGER_WAIT_TIMEOUT) deployment/cert-manager-cainjector -n cert-manager
 
 .PHONY: kind-install-issuers
 kind-install-issuers: ## Install ClusterIssuer manifests (staging, production, local fallback)
