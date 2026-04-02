@@ -48,7 +48,7 @@ PLATFORMS := \
 
 .PHONY: help
 help: ## Show this help message
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
 .PHONY: build
@@ -109,6 +109,84 @@ helm-validate: ## Lint and template the Helm chart
 		--set image.repository=$(IMG_REPO) \
 		--set image.tag=$(IMG_TAG) >/dev/null
 
+.PHONY: k8s-namespace
+k8s-namespace: ## Create namespace if it does not already exist
+	$(KUBECTL) create namespace $(K8S_NAMESPACE) --dry-run=client -o yaml | $(KUBECTL) apply -f -
+
+.PHONY: k8s-create-secrets
+k8s-create-secrets: ## Create/update app secrets in Kubernetes from environment variables
+	@set -eu; \
+	$(KUBECTL) create namespace $(K8S_NAMESPACE) --dry-run=client -o yaml | $(KUBECTL) apply -f -; \
+	tmp_dir="$$(mktemp -d)"; \
+	trap 'rm -rf "$$tmp_dir"' EXIT; \
+	printf '%s' "$${GITHUB_WEBHOOK_SECRET:?GITHUB_WEBHOOK_SECRET is required}" > "$$tmp_dir/github-webhook-secret"; \
+	printf '%s' "$${GITHUB_APP_ID:?GITHUB_APP_ID is required}" > "$$tmp_dir/github-app-id"; \
+	printf '%s' "$${GITHUB_APP_INSTALLATION_ID:?GITHUB_APP_INSTALLATION_ID is required}" > "$$tmp_dir/github-app-installation-id"; \
+	if [ -n "$${GITHUB_APP_PRIVATE_KEY_FILE:-}" ]; then \
+		cp "$$GITHUB_APP_PRIVATE_KEY_FILE" "$$tmp_dir/github-app-private-key"; \
+	else \
+		printf '%s' "$${GITHUB_APP_PRIVATE_KEY:?Set GITHUB_APP_PRIVATE_KEY or GITHUB_APP_PRIVATE_KEY_FILE}" > "$$tmp_dir/github-app-private-key"; \
+	fi; \
+	$(KUBECTL) -n $(K8S_NAMESPACE) create secret generic github-app-secrets \
+		--from-file=github-webhook-secret="$$tmp_dir/github-webhook-secret" \
+		--from-file=github-app-id="$$tmp_dir/github-app-id" \
+		--from-file=github-app-installation-id="$$tmp_dir/github-app-installation-id" \
+		--from-file=github-app-private-key="$$tmp_dir/github-app-private-key" \
+		--dry-run=client -o yaml | $(KUBECTL) apply -f -
+
+.PHONY: k8s-create-tls-secret
+k8s-create-tls-secret: ## Create/update TLS secret (requires TLS_CERT_FILE and TLS_KEY_FILE)
+	@set -eu; \
+	: "$${TLS_CERT_FILE:?TLS_CERT_FILE is required}"; \
+	: "$${TLS_KEY_FILE:?TLS_KEY_FILE is required}"; \
+	$(KUBECTL) create namespace $(K8S_NAMESPACE) --dry-run=client -o yaml | $(KUBECTL) apply -f -; \
+	$(KUBECTL) -n $(K8S_NAMESPACE) create secret tls $(TLS_SECRET) \
+		--cert="$$TLS_CERT_FILE" \
+		--key="$$TLS_KEY_FILE" \
+		--dry-run=client -o yaml | $(KUBECTL) apply -f -
+
+.PHONY: helm-deploy-staging
+helm-deploy-staging: ## Deploy chart with cert-manager staging ClusterIssuer
+	$(KUBECTL) create namespace $(K8S_NAMESPACE) --dry-run=client -o yaml | $(KUBECTL) apply -f -
+	$(HELM) upgrade --install $(HELM_RELEASE) $(HELM_CHART_PATH) \
+		--namespace $(K8S_NAMESPACE) \
+		--set image.repository=$(IMG_REPO) \
+		--set image.tag=$(IMG_TAG) \
+		--set ingress.host=$(HOST) \
+		--set ingress.tls.secretName=$(TLS_SECRET) \
+		--set certManager.localFallbackIssuer.enabled=false \
+		--set certManager.clusterIssuer.name=letsencrypt-staging
+
+.PHONY: helm-deploy-production
+helm-deploy-production: ## Deploy chart with cert-manager production ClusterIssuer
+	$(KUBECTL) create namespace $(K8S_NAMESPACE) --dry-run=client -o yaml | $(KUBECTL) apply -f -
+	$(HELM) upgrade --install $(HELM_RELEASE) $(HELM_CHART_PATH) \
+		--namespace $(K8S_NAMESPACE) \
+		--set image.repository=$(IMG_REPO) \
+		--set image.tag=$(IMG_TAG) \
+		--set ingress.host=$(HOST) \
+		--set ingress.tls.secretName=$(TLS_SECRET) \
+		--set certManager.localFallbackIssuer.enabled=false \
+		--set certManager.clusterIssuer.name=letsencrypt-production
+
+.PHONY: helm-deploy-local-tls
+helm-deploy-local-tls: ## Deploy chart with pre-created TLS secret and cert-manager disabled
+	$(KUBECTL) create namespace $(K8S_NAMESPACE) --dry-run=client -o yaml | $(KUBECTL) apply -f -
+	$(HELM) upgrade --install $(HELM_RELEASE) $(HELM_CHART_PATH) \
+		--namespace $(K8S_NAMESPACE) \
+		--set image.repository=$(IMG_REPO) \
+		--set image.tag=$(IMG_TAG) \
+		--set ingress.host=$(HOST) \
+		--set ingress.tls.secretName=$(TLS_SECRET) \
+		--set certManager.enabled=false
+
+.PHONY: helm-status
+helm-status: ## Show release and Kubernetes resource status
+	$(KUBECTL) -n $(K8S_NAMESPACE) get deploy,pods,svc,ingress
+	$(KUBECTL) -n $(K8S_NAMESPACE) describe ingress $(HELM_RELEASE)
+	$(KUBECTL) -n $(K8S_NAMESPACE) get secret $(TLS_SECRET)
+	$(HELM) -n $(K8S_NAMESPACE) status $(HELM_RELEASE)
+
 .PHONY: docker-build
 docker-build: ## Build local container image for github-app
 	docker build -t $(FULL_IMAGE) .
@@ -134,37 +212,10 @@ kind-install-issuers: ## Install ClusterIssuer manifests (staging, production, l
 	$(KUBECTL) apply -f deploy/issuers/selfsigned-local.yaml
 
 .PHONY: kind-create-secrets
-kind-create-secrets: ## Create/update app secrets in Kubernetes from environment variables
-	@set -eu; \
-	$(KUBECTL) create namespace $(K8S_NAMESPACE) --dry-run=client -o yaml | $(KUBECTL) apply -f -; \
-	tmp_dir="$$(mktemp -d)"; \
-	trap 'rm -rf "$$tmp_dir"' EXIT; \
-	printf '%s' "$${GITHUB_WEBHOOK_SECRET:?GITHUB_WEBHOOK_SECRET is required}" > "$$tmp_dir/github-webhook-secret"; \
-	printf '%s' "$${GITHUB_APP_ID:?GITHUB_APP_ID is required}" > "$$tmp_dir/github-app-id"; \
-	printf '%s' "$${GITHUB_APP_INSTALLATION_ID:?GITHUB_APP_INSTALLATION_ID is required}" > "$$tmp_dir/github-app-installation-id"; \
-	if [ -n "$${GITHUB_APP_PRIVATE_KEY_FILE:-}" ]; then \
-		cp "$$GITHUB_APP_PRIVATE_KEY_FILE" "$$tmp_dir/github-app-private-key"; \
-	else \
-		printf '%s' "$${GITHUB_APP_PRIVATE_KEY:?Set GITHUB_APP_PRIVATE_KEY or GITHUB_APP_PRIVATE_KEY_FILE}" > "$$tmp_dir/github-app-private-key"; \
-	fi; \
-	$(KUBECTL) -n $(K8S_NAMESPACE) create secret generic github-app-secrets \
-		--from-file=github-webhook-secret="$$tmp_dir/github-webhook-secret" \
-		--from-file=github-app-id="$$tmp_dir/github-app-id" \
-		--from-file=github-app-installation-id="$$tmp_dir/github-app-installation-id" \
-		--from-file=github-app-private-key="$$tmp_dir/github-app-private-key" \
-		--dry-run=client -o yaml | $(KUBECTL) apply -f -
+kind-create-secrets: k8s-create-secrets ## Create/update app secrets in Kubernetes from environment variables
 
 .PHONY: kind-deploy-staging
-kind-deploy-staging: kind-load-image ## Deploy chart using Let’s Encrypt staging issuer
-	$(KUBECTL) create namespace $(K8S_NAMESPACE) --dry-run=client -o yaml | $(KUBECTL) apply -f -
-	$(HELM) upgrade --install $(HELM_RELEASE) $(HELM_CHART_PATH) \
-		--namespace $(K8S_NAMESPACE) \
-		--set image.repository=$(IMG_REPO) \
-		--set image.tag=$(IMG_TAG) \
-		--set ingress.host=$(HOST) \
-		--set ingress.tls.secretName=$(TLS_SECRET) \
-		--set certManager.localFallbackIssuer.enabled=false \
-		--set certManager.clusterIssuer.name=letsencrypt-staging
+kind-deploy-staging: kind-load-image helm-deploy-staging ## Deploy chart using Let’s Encrypt staging issuer
 
 .PHONY: kind-deploy-local
 kind-deploy-local: kind-load-image ## Deploy chart using local self-signed fallback issuer

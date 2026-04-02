@@ -36,18 +36,17 @@ The chart expects a Kubernetes Secret with these keys:
 ## 2) Create namespace and required secret
 
 ```bash
-kubectl create namespace github-app --dry-run=client -o yaml | kubectl apply -f -
+make k8s-namespace K8S_NAMESPACE=github-app
 ```
 
 Create/update the secret consumed by the chart:
 
 ```bash
-kubectl -n github-app create secret generic github-app-secrets \
-  --from-literal=github-webhook-secret='replace-me' \
-  --from-literal=github-app-id='123456' \
-  --from-literal=github-app-installation-id='654321' \
-  --from-file=github-app-private-key=/path/to/github-app.private-key.pem \
-  --dry-run=client -o yaml | kubectl apply -f -
+GITHUB_WEBHOOK_SECRET='replace-me' \
+GITHUB_APP_ID='123456' \
+GITHUB_APP_INSTALLATION_ID='654321' \
+GITHUB_APP_PRIVATE_KEY_FILE='/path/to/github-app.private-key.pem' \
+make k8s-create-secrets K8S_NAMESPACE=github-app
 ```
 
 If you use different key names or a different secret name, override `secrets.*` values at install time.
@@ -81,17 +80,13 @@ Use your **GitHub App** settings page to collect the values before creating `git
 From the repository root:
 
 ```bash
-helm upgrade --install github-app ./charts/github-app \
-  --namespace github-app \
-  --set image.repository=ghcr.io/<org>/<image> \
-  --set image.tag=<tag> \
-  --set ingress.enabled=true \
-  --set ingress.className=nginx \
-  --set ingress.host=webhooks.example.com \
-  --set ingress.tls.enabled=true \
-  --set ingress.tls.secretName=github-app-webhooks-tls \
-  --set certManager.enabled=true \
-  --set certManager.clusterIssuer.name=letsencrypt-production
+make helm-deploy-production \
+  K8S_NAMESPACE=github-app \
+  HELM_RELEASE=github-app \
+  IMG_REPO=ghcr.io/<org>/<image> \
+  IMG_TAG=<tag> \
+  HOST=webhooks.example.com \
+  TLS_SECRET=github-app-webhooks-tls
 ```
 
 Recommended: commit environment-specific values files (without secrets) such as:
@@ -102,9 +97,7 @@ Recommended: commit environment-specific values files (without secrets) such as:
 Then install with:
 
 ```bash
-helm upgrade --install github-app ./charts/github-app \
-  --namespace github-app \
-  -f values-production.yaml
+helm upgrade --install github-app ./charts/github-app --namespace github-app -f values-production.yaml
 ```
 
 ---
@@ -116,10 +109,11 @@ If your organization manages TLS certificates outside cert-manager, provide your
 ### 4.1 Create TLS secret from your cert/key
 
 ```bash
-kubectl -n github-app create secret tls github-app-webhooks-tls \
-  --cert=/path/to/tls.crt \
-  --key=/path/to/tls.key \
-  --dry-run=client -o yaml | kubectl apply -f -
+TLS_CERT_FILE=/path/to/tls.crt \
+TLS_KEY_FILE=/path/to/tls.key \
+make k8s-create-tls-secret \
+  K8S_NAMESPACE=github-app \
+  TLS_SECRET=github-app-webhooks-tls
 ```
 
 - `tls.crt` is your public certificate chain.
@@ -130,13 +124,13 @@ kubectl -n github-app create secret tls github-app-webhooks-tls \
 Use Helm overrides:
 
 ```bash
-helm upgrade --install github-app ./charts/github-app \
-  --namespace github-app \
-  --set ingress.enabled=true \
-  --set ingress.host=webhooks.example.com \
-  --set ingress.tls.enabled=true \
-  --set ingress.tls.secretName=github-app-webhooks-tls \
-  --set certManager.enabled=false
+make helm-deploy-local-tls \
+  K8S_NAMESPACE=github-app \
+  HELM_RELEASE=github-app \
+  IMG_REPO=ghcr.io/<org>/<image> \
+  IMG_TAG=<tag> \
+  HOST=webhooks.example.com \
+  TLS_SECRET=github-app-webhooks-tls
 ```
 
 With `certManager.enabled=false`, the chart will not set `cert-manager.io/cluster-issuer` on the Ingress and your pre-created TLS secret will be used directly.
@@ -146,10 +140,10 @@ With `certManager.enabled=false`, the chart will not set `cert-manager.io/cluste
 ## 5) Post-install checks
 
 ```bash
-kubectl -n github-app get deploy,pods,svc,ingress
-kubectl -n github-app describe ingress github-app
-kubectl -n github-app get secret github-app-webhooks-tls
-helm -n github-app status github-app
+make helm-status \
+  K8S_NAMESPACE=github-app \
+  HELM_RELEASE=github-app \
+  TLS_SECRET=github-app-webhooks-tls
 ```
 
 Validate service health:
