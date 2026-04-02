@@ -246,6 +246,10 @@ kind-deploy-local: kind-load-image ## Deploy chart using local self-signed fallb
 		--set certManager.localFallbackIssuer.enabled=true \
 		--set certManager.localFallbackIssuer.name=selfsigned-local
 
+.PHONY: kind-deploy-verify
+kind-deploy-verify: ## Bootstrap Kind, deploy app, and verify /healthz via the helper script
+	./scripts/kind-deploy-verify.sh
+
 .PHONY: kind-clean
 kind-clean: ## Uninstall Helm release and delete Kind cluster
 	-$(HELM) uninstall $(HELM_RELEASE) -n $(K8S_NAMESPACE)

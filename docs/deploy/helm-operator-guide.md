@@ -2,6 +2,8 @@
 
 This guide is for cluster operators deploying `charts/github-app` into Kubernetes environments outside the local Kind bootstrap flow.
 
+If you need a one-command local Kind smoke test, use `make kind-deploy-verify` (wrapper around `scripts/kind-deploy-verify.sh`) and refer to `docs/deploy/kind-helm-cert-manager.md`.
+
 ## 1) Server prerequisites
 
 Before installing the chart, make sure the target cluster and operator workstation have the following:
@@ -49,6 +51,13 @@ GITHUB_APP_PRIVATE_KEY_FILE='/path/to/github-app.private-key.pem' \
 make k8s-create-secrets K8S_NAMESPACE=github-app
 ```
 
+Behavior of `make k8s-create-secrets`:
+
+- `GITHUB_WEBHOOK_SECRET` is required.
+- `GITHUB_APP_ID` and `GITHUB_APP_INSTALLATION_ID` are optional, but the target includes them only when **both** are provided.
+- If only one of `GITHUB_APP_ID` or `GITHUB_APP_INSTALLATION_ID` is set, the target prints a warning and skips both keys.
+- `GITHUB_APP_PRIVATE_KEY_FILE` is preferred; `GITHUB_APP_PRIVATE_KEY` is accepted as a compatibility fallback.
+
 If you use different key names or a different secret name, override `secrets.*` values at install time.
 
 ### Where these values come from in GitHub
@@ -72,6 +81,13 @@ Use your **GitHub App** settings page to collect the values before creating `git
 - `github-app-id`, `github-app-installation-id`, and `github-app-private-key` are marked optional in the Deployment, so pods can still start if they are absent.
 - Current application behavior: webhook handling still runs without app credentials because event processing in this service does not currently require those three values.
 - Security note: this codebase currently does not enforce webhook signature verification in the handler; set and manage `github-webhook-secret` anyway so future signature validation can be enabled without secret migration.
+
+### Secret key mapping used by `k8s-create-secrets`
+
+- `github-webhook-secret` <- `GITHUB_WEBHOOK_SECRET` (required)
+- `github-app-id` <- `GITHUB_APP_ID` (included only when paired with installation ID)
+- `github-app-installation-id` <- `GITHUB_APP_INSTALLATION_ID` (included only when paired with app ID)
+- `github-app-private-key` <- `GITHUB_APP_PRIVATE_KEY_FILE` (preferred) or `GITHUB_APP_PRIVATE_KEY`
 
 ---
 
@@ -160,6 +176,8 @@ The chart sets ingress `metadata.name` with `{{ include "github-app.fullname" . 
 - Because of this, do **not** assume the ingress is named exactly `$(HELM_RELEASE)` unless you explicitly set `fullnameOverride` that way.
 
 `make helm-status` already selects ingress resources using `app.kubernetes.io/instance=$(HELM_RELEASE)` labels, so it remains accurate regardless of default naming or `fullnameOverride`.
+
+If `TLS_SECRET` is not present yet (for example, cert-manager has not issued it yet, or TLS is intentionally disabled), `make helm-status` prints a non-fatal note instead of failing the whole check.
 
 ---
 
