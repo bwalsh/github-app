@@ -23,6 +23,9 @@ cleanup() {
   if [[ -n "${PORT_FORWARD_PID:-}" ]]; then
     kill "$PORT_FORWARD_PID" >/dev/null 2>&1 || true
   fi
+  if [[ -n "${HEALTH_OUTPUT_FILE:-}" && -f "${HEALTH_OUTPUT_FILE}" ]]; then
+    rm -f "${HEALTH_OUTPUT_FILE}"
+  fi
 }
 
 trap cleanup EXIT
@@ -67,19 +70,22 @@ log "Port-forwarding service/${SERVICE_NAME} to localhost:${LOCAL_HEALTH_PORT}"
 kubectl -n "$K8S_NAMESPACE" port-forward "service/${SERVICE_NAME}" "${LOCAL_HEALTH_PORT}:80" >/tmp/github-app-port-forward.log 2>&1 &
 PORT_FORWARD_PID=$!
 
+HEALTH_OUTPUT_FILE="$(mktemp -t github-app-healthz.XXXXXX)"
+HEALTH_PROBE_SUCCEEDED=false
+
 for _ in {1..20}; do
-  if curl --silent --fail "http://127.0.0.1:${LOCAL_HEALTH_PORT}/healthz" >/tmp/github-app-healthz.out; then
+  if curl --silent --fail "http://127.0.0.1:${LOCAL_HEALTH_PORT}/healthz" >"$HEALTH_OUTPUT_FILE"; then
+    HEALTH_PROBE_SUCCEEDED=true
     break
   fi
   sleep 1
 done
 
-if ! grep -q "ok" /tmp/github-app-healthz.out; then
+if [[ "$HEALTH_PROBE_SUCCEEDED" != true ]] || ! grep -q "ok" "$HEALTH_OUTPUT_FILE"; then
   printf 'error: health check failed, expected response containing "ok"\n' >&2
   printf 'hint: see /tmp/github-app-port-forward.log for port-forward output\n' >&2
   exit 1
 fi
 
-log "Health check passed: $(tr -d '\n' </tmp/github-app-healthz.out)"
+log "Health check passed: $(tr -d '\n' <"$HEALTH_OUTPUT_FILE")"
 log "Deployment verification complete"
-
