@@ -121,13 +121,12 @@ k8s-create-secrets: ## Create/update app secrets in Kubernetes from environment 
 	trap 'rm -rf "$$tmp_dir"' EXIT; \
 	printf '%s' "$${GITHUB_WEBHOOK_SECRET:?GITHUB_WEBHOOK_SECRET is required}" > "$$tmp_dir/github-webhook-secret"; \
 	secret_args="--from-file=github-webhook-secret=$$tmp_dir/github-webhook-secret"; \
-	if [ -n "$${GITHUB_APP_ID:-}" ]; then \
+	if [ -n "$${GITHUB_APP_ID:-}" ] && [ -n "$${GITHUB_APP_INSTALLATION_ID:-}" ]; then \
 		printf '%s' "$${GITHUB_APP_ID}" > "$$tmp_dir/github-app-id"; \
-		secret_args="$$secret_args --from-file=github-app-id=$$tmp_dir/github-app-id"; \
-	fi; \
-	if [ -n "$${GITHUB_APP_INSTALLATION_ID:-}" ]; then \
 		printf '%s' "$${GITHUB_APP_INSTALLATION_ID}" > "$$tmp_dir/github-app-installation-id"; \
-		secret_args="$$secret_args --from-file=github-app-installation-id=$$tmp_dir/github-app-installation-id"; \
+		secret_args="$$secret_args --from-file=github-app-id=$$tmp_dir/github-app-id --from-file=github-app-installation-id=$$tmp_dir/github-app-installation-id"; \
+	elif [ -n "$${GITHUB_APP_ID:-}" ] || [ -n "$${GITHUB_APP_INSTALLATION_ID:-}" ]; then \
+		echo "warning: GITHUB_APP_ID and GITHUB_APP_INSTALLATION_ID are optional, but must be provided together; skipping both." >&2; \
 	fi; \
 	if [ -n "$${GITHUB_APP_PRIVATE_KEY_FILE:-}" ]; then \
 		cp "$$GITHUB_APP_PRIVATE_KEY_FILE" "$$tmp_dir/github-app-private-key"; \

@@ -5,7 +5,9 @@ COPY go.mod ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /out/github-app ./cmd/github-app
+ARG TARGETOS=linux
+ARG TARGETARCH
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -o /out/github-app ./cmd/github-app
 
 FROM gcr.io/distroless/static-debian12:nonroot
 WORKDIR /

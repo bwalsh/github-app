@@ -10,7 +10,7 @@ A GitHub App for webhook event registration and handling, written in Go.
 
 ## Requirements
 
-- Go 1.21 or later
+- Go 1.24.13 or later
 
 ## Installation
 
