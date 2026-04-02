@@ -116,6 +116,43 @@ Then install with:
 helm upgrade --install github-app ./charts/github-app --namespace github-app -f values-production.yaml
 ```
 
+### 3.1 Bring up an internal-only test deployment (no public internet)
+
+Use this flow when you need to validate the app in a disconnected/private environment where GitHub cannot call into the cluster.
+
+1. Deploy the chart with ingress disabled (no public endpoint required):
+
+```bash
+helm upgrade --install github-app ./charts/github-app \
+  --namespace github-app \
+  --set ingress.enabled=false
+```
+
+2. Verify pods are ready:
+
+```bash
+kubectl -n github-app get pods
+```
+
+3. Port-forward the service to your workstation and run local checks:
+
+```bash
+kubectl -n github-app port-forward svc/github-app-github-app 8080:80
+```
+
+In another terminal:
+
+```bash
+curl -i http://127.0.0.1:8080/healthz
+curl -i -X POST http://127.0.0.1:8080/webhook -H 'content-type: application/json' -d '{}'
+```
+
+Notes:
+
+- This mode is for operator and chart validation only; GitHub webhook delivery requires a publicly reachable HTTPS endpoint.
+- If you still want to exercise ingress/TLS objects without public internet, use a private host plus `certManager.localFallbackIssuer.enabled=true` with the `selfsigned-local` ClusterIssuer (see `kind-deploy-local` pattern in `docs/deploy/kind-helm-cert-manager.md`).
+- Service naming follows the same Helm fullname behavior as other resources: by default `<release>-<chart>` (for example `github-app-github-app`). If `fullnameOverride` is set, use that value instead.
+
 ---
 
 ## 4) Supplying your own ingress public/private key pair
