@@ -38,8 +38,10 @@ require_cmd docker
 require_cmd curl
 
 if [[ -z "${GITHUB_WEBHOOK_SECRET:-}" ]]; then
-  export GITHUB_WEBHOOK_SECRET="dev-webhook-secret"
-  log "GITHUB_WEBHOOK_SECRET not set; using temporary default for local deploy"
+  # Generate a random ephemeral secret for local deploys instead of using a fixed default
+  GITHUB_WEBHOOK_SECRET="$(head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32)"
+  export GITHUB_WEBHOOK_SECRET
+  log "GITHUB_WEBHOOK_SECRET not set; generated random ephemeral value for local deploy: ${GITHUB_WEBHOOK_SECRET}"
 fi
 
 log "Bootstrapping Kind cluster and core dependencies"
@@ -66,8 +68,13 @@ fi
 log "Waiting for deployment/${DEPLOYMENT_NAME} rollout"
 kubectl -n "$K8S_NAMESPACE" rollout status "deployment/${DEPLOYMENT_NAME}" --timeout=240s
 
-log "Port-forwarding service/${SERVICE_NAME} to localhost:${LOCAL_HEALTH_PORT}"
-kubectl -n "$K8S_NAMESPACE" port-forward "service/${SERVICE_NAME}" "${LOCAL_HEALTH_PORT}:80" >/tmp/github-app-port-forward.log 2>&1 &
+SERVICE_PORT="$(kubectl -n "$K8S_NAMESPACE" get svc "${SERVICE_NAME}" -o jsonpath='{.spec.ports[?(@.name=="http")].port}')"
+if [[ -z "${SERVICE_PORT}" ]]; then
+  SERVICE_PORT="$(kubectl -n "$K8S_NAMESPACE" get svc "${SERVICE_NAME}" -o jsonpath='{.spec.ports[0].port}')"
+fi
+
+log "Port-forwarding service/${SERVICE_NAME} port ${SERVICE_PORT} to localhost:${LOCAL_HEALTH_PORT}"
+kubectl -n "$K8S_NAMESPACE" port-forward "service/${SERVICE_NAME}" "${LOCAL_HEALTH_PORT}:${SERVICE_PORT}" >/tmp/github-app-port-forward.log 2>&1 &
 PORT_FORWARD_PID=$!
 
 HEALTH_OUTPUT_FILE="$(mktemp -t github-app-healthz.XXXXXX)"
