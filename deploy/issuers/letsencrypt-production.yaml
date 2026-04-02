@@ -4,7 +4,8 @@ metadata:
   name: letsencrypt-production
 spec:
   acme:
-    email: platform-team@example.com
+    # Set this to a real operator email address before deploying.
+    email: your-operator-email@example.com
     server: https://acme-v02.api.letsencrypt.org/directory
     privateKeySecretRef:
       name: letsencrypt-production-account-key

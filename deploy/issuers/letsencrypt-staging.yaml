@@ -4,7 +4,7 @@ metadata:
   name: letsencrypt-staging
 spec:
   acme:
-    email: platform-team@example.com
+    email: REPLACE_WITH_OPERATOR_EMAIL@example.com  # TODO: set to a real operator email for ACME notifications
     server: https://acme-staging-v02.api.letsencrypt.org/directory
     privateKeySecretRef:
       name: letsencrypt-staging-account-key

@@ -120,18 +120,24 @@ k8s-create-secrets: ## Create/update app secrets in Kubernetes from environment 
 	tmp_dir="$$(mktemp -d)"; \
 	trap 'rm -rf "$$tmp_dir"' EXIT; \
 	printf '%s' "$${GITHUB_WEBHOOK_SECRET:?GITHUB_WEBHOOK_SECRET is required}" > "$$tmp_dir/github-webhook-secret"; \
-	printf '%s' "$${GITHUB_APP_ID:?GITHUB_APP_ID is required}" > "$$tmp_dir/github-app-id"; \
-	printf '%s' "$${GITHUB_APP_INSTALLATION_ID:?GITHUB_APP_INSTALLATION_ID is required}" > "$$tmp_dir/github-app-installation-id"; \
+	secret_args="--from-file=github-webhook-secret=$$tmp_dir/github-webhook-secret"; \
+	if [ -n "$${GITHUB_APP_ID:-}" ]; then \
+		printf '%s' "$${GITHUB_APP_ID}" > "$$tmp_dir/github-app-id"; \
+		secret_args="$$secret_args --from-file=github-app-id=$$tmp_dir/github-app-id"; \
+	fi; \
+	if [ -n "$${GITHUB_APP_INSTALLATION_ID:-}" ]; then \
+		printf '%s' "$${GITHUB_APP_INSTALLATION_ID}" > "$$tmp_dir/github-app-installation-id"; \
+		secret_args="$$secret_args --from-file=github-app-installation-id=$$tmp_dir/github-app-installation-id"; \
+	fi; \
 	if [ -n "$${GITHUB_APP_PRIVATE_KEY_FILE:-}" ]; then \
 		cp "$$GITHUB_APP_PRIVATE_KEY_FILE" "$$tmp_dir/github-app-private-key"; \
-	else \
-		printf '%s' "$${GITHUB_APP_PRIVATE_KEY:?Set GITHUB_APP_PRIVATE_KEY or GITHUB_APP_PRIVATE_KEY_FILE}" > "$$tmp_dir/github-app-private-key"; \
+		secret_args="$$secret_args --from-file=github-app-private-key=$$tmp_dir/github-app-private-key"; \
+	elif [ -n "$${GITHUB_APP_PRIVATE_KEY:-}" ]; then \
+		printf '%s' "$${GITHUB_APP_PRIVATE_KEY}" > "$$tmp_dir/github-app-private-key"; \
+		secret_args="$$secret_args --from-file=github-app-private-key=$$tmp_dir/github-app-private-key"; \
 	fi; \
 	$(KUBECTL) -n $(K8S_NAMESPACE) create secret generic github-app-secrets \
-		--from-file=github-webhook-secret="$$tmp_dir/github-webhook-secret" \
-		--from-file=github-app-id="$$tmp_dir/github-app-id" \
-		--from-file=github-app-installation-id="$$tmp_dir/github-app-installation-id" \
-		--from-file=github-app-private-key="$$tmp_dir/github-app-private-key" \
+		$$secret_args \
 		--dry-run=client -o yaml | $(KUBECTL) apply -f -
 
 .PHONY: k8s-create-tls-secret
@@ -186,11 +192,17 @@ helm-status: ## Show release and Kubernetes resource status
 	@INGRESS_NAMES="$$($(KUBECTL) -n $(K8S_NAMESPACE) get ingress -l app.kubernetes.io/instance=$(HELM_RELEASE) -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')"; \
 	if [ -n "$$INGRESS_NAMES" ]; then \
 		echo "Describing ingress resources for Helm release $(HELM_RELEASE):"; \
-		echo "$$INGRESS_NAMES" | xargs -r -n1 $(KUBECTL) -n $(K8S_NAMESPACE) describe ingress; \
+		echo "$$INGRESS_NAMES" | xargs -n1 $(KUBECTL) -n $(K8S_NAMESPACE) describe ingress; \
 	else \
 		echo "No ingress resources found for app.kubernetes.io/instance=$(HELM_RELEASE) in namespace $(K8S_NAMESPACE)."; \
 	fi
-	$(KUBECTL) -n $(K8S_NAMESPACE) get secret $(TLS_SECRET)
+	@if [ -n "$(TLS_SECRET)" ]; then \
+		if ! $(KUBECTL) -n $(K8S_NAMESPACE) get secret $(TLS_SECRET); then \
+			echo "TLS secret '$(TLS_SECRET)' not found in namespace $(K8S_NAMESPACE) (this may be expected if TLS is not yet provisioned or disabled)."; \
+		fi; \
+	else \
+		echo "TLS secret name (TLS_SECRET) is not set; skipping TLS secret status."; \
+	fi
 	$(HELM) -n $(K8S_NAMESPACE) status $(HELM_RELEASE)
 
 .PHONY: docker-build
