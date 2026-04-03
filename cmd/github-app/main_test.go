@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/bwalsh/github-app/internal/handler"
+	"github.com/bwalsh/github-app/internal/tenant"
 )
 
 func TestResolvePort_Default8080(t *testing.T) {
@@ -89,5 +90,67 @@ func TestRun_InvalidAddrReturnsError(t *testing.T) {
 	var addrErr *net.OpError
 	if !errors.As(err, &addrErr) {
 		t.Fatalf("expected net.OpError, got %T (%v)", err, err)
+	}
+}
+
+func TestBuildTenantRegistry_DefaultMemory(t *testing.T) {
+	r, err := buildTenantRegistry(func(string) string { return "" })
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	t.Cleanup(func() {
+		if err := r.Close(); err != nil {
+			t.Fatalf("close failed: %v", err)
+		}
+	})
+
+	key := tenant.Key{InstallationID: 1, RepositoryID: 1}
+	if err := r.Register(key, &tenant.Tenant{Name: "n", Namespace: "ns"}); err != nil {
+		t.Fatalf("register failed: %v", err)
+	}
+	if _, ok, err := r.Lookup(key); err != nil || !ok {
+		t.Fatalf("lookup failed: ok=%t err=%v", ok, err)
+	}
+}
+
+func TestBuildTenantRegistry_SQLite(t *testing.T) {
+	dbPath := t.TempDir() + "/tenants.db"
+	r, err := buildTenantRegistry(func(key string) string {
+		switch key {
+		case "TENANT_PERSISTENCE":
+			return "sqlite"
+		case "TENANT_SQLITE_DSN":
+			return dbPath
+		default:
+			return ""
+		}
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	t.Cleanup(func() {
+		if err := r.Close(); err != nil {
+			t.Fatalf("close failed: %v", err)
+		}
+	})
+
+	key := tenant.Key{InstallationID: 2, RepositoryID: 3}
+	if err := r.Register(key, &tenant.Tenant{Name: "sqlite", Namespace: "ns-sqlite"}); err != nil {
+		t.Fatalf("register failed: %v", err)
+	}
+	if _, ok, err := r.Lookup(key); err != nil || !ok {
+		t.Fatalf("lookup failed: ok=%t err=%v", ok, err)
+	}
+}
+
+func TestBuildTenantRegistry_UnsupportedProvider(t *testing.T) {
+	_, err := buildTenantRegistry(func(key string) string {
+		if key == "TENANT_PERSISTENCE" {
+			return "redis"
+		}
+		return ""
+	})
+	if err == nil {
+		t.Fatal("expected error for unsupported provider")
 	}
 }

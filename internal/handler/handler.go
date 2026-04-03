@@ -106,7 +106,13 @@ func (h *Handler) handlePush(w http.ResponseWriter, body []byte) {
 	}
 
 	key := tenant.Key{InstallationID: p.Installation.ID, RepositoryID: p.Repository.ID}
-	t, ok := h.lookupTenant(key, p.Repository.FullName)
+	t, ok, err := h.lookupTenant(key, p.Repository.FullName)
+	if err != nil {
+		log.Printf("[handler] tenant lookup failed for installation=%d repo_id=%d: %v",
+			p.Installation.ID, p.Repository.ID, err)
+		http.Error(w, "tenant registry unavailable", http.StatusInternalServerError)
+		return
+	}
 	if !ok {
 		log.Printf("[handler] no tenant for installation=%d repo_id=%d — skipping",
 			p.Installation.ID, p.Repository.ID)
@@ -161,7 +167,12 @@ func (h *Handler) handleInstallationRepositories(w http.ResponseWriter, body []b
 		}
 
 		if h.registry != nil {
-			h.registry.Register(key, t)
+			if err := h.registry.Register(key, t); err != nil {
+				log.Printf("[handler] failed to register tenant installation=%d repo=%s: %v",
+					p.Installation.ID, repo.FullName, err)
+				http.Error(w, "tenant registry unavailable", http.StatusInternalServerError)
+				return
+			}
 			log.Printf("[handler] registered tenant=%s installation=%d repo=%s",
 				t.Name, p.Installation.ID, repo.FullName)
 		}
@@ -203,12 +214,12 @@ func (h *Handler) handleGeneric(w http.ResponseWriter, eventType string, body []
 
 // lookupTenant resolves the tenant for a key. If the registry is nil (e.g. in
 // tests using New()), it always returns a default tenant so events are processed.
-func (h *Handler) lookupTenant(key tenant.Key, repoFullName string) (*tenant.Tenant, bool) {
+func (h *Handler) lookupTenant(key tenant.Key, repoFullName string) (*tenant.Tenant, bool, error) {
 	if h.registry == nil {
 		return &tenant.Tenant{
 			Name:      fmt.Sprintf("default-%s", repoFullName),
 			Namespace: "default",
-		}, true
+		}, true, nil
 	}
 	return h.registry.Lookup(key)
 }
