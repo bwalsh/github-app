@@ -28,11 +28,17 @@ K8S_NAMESPACE     ?= github-app
 HELM_RELEASE      ?= github-app
 HELM_CHART_PATH   ?= charts/github-app
 INGRESS_NGINX_VERSION ?= controller-v1.13.3
+KIND_INGRESS_WAIT_TIMEOUT ?= 300s
+KIND_CERT_MANAGER_WAIT_TIMEOUT ?= 300s
 HOST              ?= github-app.localdev.me
 TLS_SECRET        ?= github-app-tls
 IMG_REPO          ?= github-app
 IMG_TAG           ?= dev
 FULL_IMAGE        ?= $(IMG_REPO):$(IMG_TAG)
+FULLNAME_OVERRIDE ?=
+APP_SERVICE_NAME  ?= $(if $(FULLNAME_OVERRIDE),$(FULLNAME_OVERRIDE),$(HELM_RELEASE)-github-app)
+LOCAL_PORT        ?= 8080
+SERVICE_PORT      ?= 80
 
 # Platforms for release builds
 PLATFORMS := \
@@ -185,6 +191,34 @@ helm-deploy-local-tls: ## Deploy chart with pre-created TLS secret and cert-mana
 		--set ingress.tls.secretName=$(TLS_SECRET) \
 		--set certManager.enabled=false
 
+.PHONY: helm-deploy-internal-test
+helm-deploy-internal-test: ## Deploy internal-only test release, wait for deployment availability, and port-forward service
+	$(KUBECTL) create namespace $(K8S_NAMESPACE) --dry-run=client -o yaml | $(KUBECTL) apply -f -
+	$(HELM) upgrade --install $(HELM_RELEASE) $(HELM_CHART_PATH) \
+		--namespace $(K8S_NAMESPACE) \
+		--set image.repository=$(IMG_REPO) \
+		--set image.tag=$(IMG_TAG) \
+		--set ingress.enabled=false \
+		$(if $(FULLNAME_OVERRIDE),--set fullnameOverride=$(FULLNAME_OVERRIDE),)
+	$(KUBECTL) -n $(K8S_NAMESPACE) wait \
+		--for=condition=Available deployment/$(APP_SERVICE_NAME) \
+		--timeout=180s
+	$(KUBECTL) -n $(K8S_NAMESPACE) get pods
+	$(KUBECTL) -n $(K8S_NAMESPACE) port-forward svc/$(APP_SERVICE_NAME) $(LOCAL_PORT):$(SERVICE_PORT)
+
+.PHONY: helm-local-checks
+helm-local-checks: ## Run local checks against port-forwarded service (/healthz + empty webhook POST)
+	curl -i --fail http://127.0.0.1:$(LOCAL_PORT)/healthz
+	@status="$$(curl -s -o /tmp/github-app-webhook-check.out -w '%{http_code}' -X POST http://127.0.0.1:$(LOCAL_PORT)/webhook \
+		-H 'content-type: application/json' \
+		-d '{}')"; \
+	if [ "$$status" != "400" ]; then \
+		echo "expected POST /webhook to return HTTP 400, got $$status" >&2; \
+		cat /tmp/github-app-webhook-check.out >&2; \
+		exit 1; \
+	fi; \
+	echo "POST /webhook returned expected HTTP 400"
+
 .PHONY: helm-status
 helm-status: ## Show release and Kubernetes resource status
 	$(KUBECTL) -n $(K8S_NAMESPACE) get deploy,pods,svc,ingress
@@ -214,13 +248,15 @@ kind-load-image: docker-build ## Load local container image into Kind nodes
 
 .PHONY: kind-bootstrap
 kind-bootstrap: ## Create Kind cluster and install ingress-nginx + cert-manager
+	@command -v $(KIND) >/dev/null 2>&1 || { echo "$(KIND) is required; install Kind before running kind-bootstrap" >&2; exit 1; }
+	@command -v $(KUBECTL) >/dev/null 2>&1 || { echo "$(KUBECTL) is required; install kubectl before running kind-bootstrap" >&2; exit 1; }
 	$(KIND) get clusters | grep -q "^$(KIND_CLUSTER_NAME)$$" || $(KIND) create cluster --name $(KIND_CLUSTER_NAME)
 	$(KUBECTL) apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/$(INGRESS_NGINX_VERSION)/deploy/static/provider/kind/deploy.yaml
-	$(KUBECTL) wait --namespace ingress-nginx --for=condition=ready pod --selector=app.kubernetes.io/component=controller --timeout=180s
+	$(KUBECTL) -n ingress-nginx rollout status deployment/ingress-nginx-controller --timeout=$(KIND_INGRESS_WAIT_TIMEOUT)
 	$(KUBECTL) apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.18.2/cert-manager.yaml
-	$(KUBECTL) wait --for=condition=Available --timeout=180s deployment/cert-manager -n cert-manager
-	$(KUBECTL) wait --for=condition=Available --timeout=180s deployment/cert-manager-webhook -n cert-manager
-	$(KUBECTL) wait --for=condition=Available --timeout=180s deployment/cert-manager-cainjector -n cert-manager
+	$(KUBECTL) wait --for=condition=Available --timeout=$(KIND_CERT_MANAGER_WAIT_TIMEOUT) deployment/cert-manager -n cert-manager
+	$(KUBECTL) wait --for=condition=Available --timeout=$(KIND_CERT_MANAGER_WAIT_TIMEOUT) deployment/cert-manager-webhook -n cert-manager
+	$(KUBECTL) wait --for=condition=Available --timeout=$(KIND_CERT_MANAGER_WAIT_TIMEOUT) deployment/cert-manager-cainjector -n cert-manager
 
 .PHONY: kind-install-issuers
 kind-install-issuers: ## Install ClusterIssuer manifests (staging, production, local fallback)
@@ -245,6 +281,10 @@ kind-deploy-local: kind-load-image ## Deploy chart using local self-signed fallb
 		--set ingress.tls.secretName=$(TLS_SECRET) \
 		--set certManager.localFallbackIssuer.enabled=true \
 		--set certManager.localFallbackIssuer.name=selfsigned-local
+
+.PHONY: kind-deploy-verify
+kind-deploy-verify: ## Bootstrap Kind, deploy app, and verify /healthz via the helper script
+	./scripts/kind-deploy-verify.sh
 
 .PHONY: kind-clean
 kind-clean: ## Uninstall Helm release and delete Kind cluster
