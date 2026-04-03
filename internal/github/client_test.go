@@ -133,4 +133,3 @@ func TestCreateCheckRun_ConcurrentUniqueIDs(t *testing.T) {
 		t.Fatalf("stored check runs: got %d, want %d", got, n)
 	}
 }
-

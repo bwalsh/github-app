@@ -99,4 +99,3 @@ func (m *MockClient) UpdateCheckRun(ctx context.Context, installationID int64, r
 		checkRunID, installationID, repo, status.Status, status.Conclusion)
 	return nil
 }
-

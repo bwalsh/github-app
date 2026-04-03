@@ -17,13 +17,13 @@ const (
 // Job is a unit of work derived from a normalized GitHub webhook event.
 // All data required by the worker is copied in at enqueue time.
 type Job struct {
-	Kind           Kind
-	InstallationID int64
-	RepositoryID   int64
-	RepoFullName   string
-	HeadSHA        string
-	Ref            string
-	TenantName     string
+	Kind            Kind
+	InstallationID  int64
+	RepositoryID    int64
+	RepoFullName    string
+	HeadSHA         string
+	Ref             string
+	TenantName      string
 	TenantNamespace string
 }
 
@@ -51,4 +51,3 @@ func (q *Queue) Enqueue(job *Job) error {
 func (q *Queue) Jobs() <-chan *Job {
 	return q.ch
 }
-

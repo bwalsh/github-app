@@ -32,4 +32,3 @@ func TestQueue_Full(t *testing.T) {
 		t.Error("expected error when queue is full, got nil")
 	}
 }
-
