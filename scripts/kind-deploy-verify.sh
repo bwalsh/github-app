@@ -36,6 +36,7 @@ require_cmd kind
 require_cmd helm
 require_cmd docker
 require_cmd curl
+require_cmd base64
 
 if [[ -z "${GITHUB_WEBHOOK_SECRET:-}" ]]; then
   # Generate a random ephemeral secret for local deploys instead of using a fixed default

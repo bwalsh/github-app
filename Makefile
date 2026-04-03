@@ -192,7 +192,7 @@ helm-deploy-local-tls: ## Deploy chart with pre-created TLS secret and cert-mana
 		--set certManager.enabled=false
 
 .PHONY: helm-deploy-internal-test
-helm-deploy-internal-test: ## Deploy internal-only test release, wait for pods, and port-forward service
+helm-deploy-internal-test: ## Deploy internal-only test release, wait for deployment availability, and port-forward service
 	$(KUBECTL) create namespace $(K8S_NAMESPACE) --dry-run=client -o yaml | $(KUBECTL) apply -f -
 	$(HELM) upgrade --install $(HELM_RELEASE) $(HELM_CHART_PATH) \
 		--namespace $(K8S_NAMESPACE) \
@@ -201,8 +201,7 @@ helm-deploy-internal-test: ## Deploy internal-only test release, wait for pods, 
 		--set ingress.enabled=false \
 		$(if $(FULLNAME_OVERRIDE),--set fullnameOverride=$(FULLNAME_OVERRIDE),)
 	$(KUBECTL) -n $(K8S_NAMESPACE) wait \
-		--for=condition=Ready pods \
-		-l app.kubernetes.io/instance=$(HELM_RELEASE) \
+		--for=condition=Available deployment/$(APP_SERVICE_NAME) \
 		--timeout=180s
 	$(KUBECTL) -n $(K8S_NAMESPACE) get pods
 	$(KUBECTL) -n $(K8S_NAMESPACE) port-forward svc/$(APP_SERVICE_NAME) $(LOCAL_PORT):$(SERVICE_PORT)
