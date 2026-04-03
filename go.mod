@@ -1,6 +1,6 @@
 module github.com/bwalsh/github-app
 
-go 1.25.0
+go 1.25
 
 require modernc.org/sqlite v1.48.1
 
