@@ -211,3 +211,76 @@ If `TLS_SECRET` is not present yet (for example, cert-manager has not issued it 
 - Rotate TLS cert/key by updating the TLS secret referenced by `ingress.tls.secretName`.
 - Keep `ingress.host` aligned with your GitHub App webhook URL host.
 - For first-time public setup, use staging ACME issuer first, then switch to production after validation.
+
+---
+
+## 7) Operating CI deployment and troubleshooting
+
+This repository ships with a GitHub Actions workflow at `.github/workflows/ci.yml` that runs:
+
+- `test` job: formatting check, `go vet`, race-enabled unit tests, and binary build.
+- `integration` job: Kind-based deploy/verify flow via `make kind-deploy-verify` (Docker + Kind + Helm).
+
+### 7.1 Deploy (enable) CI in your repository
+
+1. Push the workflow file to your default branch (typically `main`).
+2. Confirm GitHub Actions is enabled for the repository under **Settings > Actions**.
+3. Open a pull request to verify the `CI / test` and `CI / integration` checks appear.
+4. Optionally require both checks in branch protection rules before merge.
+
+### 7.2 What the integration job deploys
+
+The `integration` job performs an ephemeral cluster deployment on the Actions runner:
+
+1. Creates a Kind cluster named `github-app`.
+2. Installs ingress-nginx and cert-manager (via Makefile targets used by `make kind-deploy-verify`).
+3. Builds Docker image `github-app:dev` and loads it into Kind.
+4. Installs/updates the Helm release and verifies `/healthz` through port-forward.
+5. Runs cleanup (`make kind-clean`) even when earlier steps fail.
+
+This deployment is temporary and exists only for the duration of the workflow run.
+
+### 7.3 CI troubleshooting playbook
+
+Use the failed job logs in GitHub Actions first, then map to likely causes:
+
+- **Formatting failure (`Verify formatting`)**
+  - Symptom: workflow reports files that are not gofmt-formatted.
+  - Fix: run `gofmt -w` on the listed `.go` files, commit, and rerun.
+
+- **`go vet` or unit test failures in `test` job**
+  - Symptom: failures before integration starts.
+  - Fix: reproduce locally with `go vet ./...` and `go test -race -count=1 ./...`, then push fixes.
+
+- **Kind bootstrap or Kubernetes rollout timeout**
+  - Symptom: failure in `make kind-deploy-verify` while waiting for ingress-nginx/cert-manager/deployment.
+  - Fixes:
+    - Inspect logs around `make kind-bootstrap` and rollout status lines.
+    - Rerun the failed job (transient runner/network pull issues are common).
+    - If persistent, increase timeout-related Make variables (`KIND_INGRESS_WAIT_TIMEOUT`, `KIND_CERT_MANAGER_WAIT_TIMEOUT`) in the CI step.
+
+- **Docker build/load failure**
+  - Symptom: failure during `make docker-build` or `kind load docker-image`.
+  - Fix: verify Dockerfile/build context changes and image tag assumptions (`github-app:dev`).
+
+- **Helm deployment or health-check failure**
+  - Symptom: release upgrades but `/healthz` probe fails.
+  - Fixes:
+    - Check rollout and service discovery logs emitted by `scripts/kind-deploy-verify.sh`.
+    - Review `/tmp/github-app-port-forward.log` output included by script hints.
+    - Validate chart values and secret wiring used by `kind-deploy-local`.
+
+- **Cleanup failures (`make kind-clean`)**
+  - Symptom: non-blocking cleanup noise after root-cause failure.
+  - Fix: focus on first failing step; cleanup often reports follow-on errors when cluster/release was never fully created.
+
+### 7.4 Safe rerun guidance
+
+- Prefer rerunning only failed jobs when available.
+- If failures are deterministic, reproduce with local Kind flow:
+
+```bash
+make kind-deploy-verify
+```
+
+- After local reproduction, apply fixes and push; GitHub Actions will redeploy cleanly in a new ephemeral runner environment.
