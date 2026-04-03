@@ -77,4 +77,3 @@ func TestStubRunner_Run_DefaultDelayWhenZero(t *testing.T) {
 		t.Fatalf("Run took unexpectedly long: %v", elapsed)
 	}
 }
-

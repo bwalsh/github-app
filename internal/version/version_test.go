@@ -36,4 +36,3 @@ func TestVariables_AreOverridableAtRuntime(t *testing.T) {
 		t.Fatalf("BuildDate: got %q", BuildDate)
 	}
 }
-

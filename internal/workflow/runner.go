@@ -59,4 +59,3 @@ func (s *StubRunner) Run(ctx context.Context, req *Request) (*Result, error) {
 
 	return &Result{Success: true, Message: msg}, nil
 }
-
