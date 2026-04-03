@@ -61,6 +61,7 @@ The Kind deploy targets build `github-app:dev` locally and load it into the Kind
 - Bootstrap guide: [`docs/deploy/kind-helm-cert-manager.md`](docs/deploy/kind-helm-cert-manager.md)
 - Webhook exposure guide: [`docs/deploy/github-webhook-exposure.md`](docs/deploy/github-webhook-exposure.md)
 - Operator guide: [`docs/deploy/helm-operator-guide.md`](docs/deploy/helm-operator-guide.md)
+- GitHub integration flows: [`docs/flows/github-integration-flows.md`](docs/flows/github-integration-flows.md)
 - One-shot local bootstrap/deploy/verify script: `scripts/kind-deploy-verify.sh`
 - Issuer manifests:
   - `deploy/issuers/letsencrypt-staging.yaml`
