@@ -120,31 +120,18 @@ helm upgrade --install github-app ./charts/github-app --namespace github-app -f 
 
 Use this flow when you need to validate the app in a disconnected/private environment where GitHub cannot call into the cluster.
 
-1. Deploy the chart with ingress disabled (no public endpoint required):
+1. Deploy the chart with ingress disabled (no public endpoint required), wait for pods, and start port-forward:
 
 ```bash
-helm upgrade --install github-app ./charts/github-app \
-  --namespace github-app \
-  --set ingress.enabled=false
+make helm-deploy-internal-test \
+  K8S_NAMESPACE=github-app \
+  HELM_RELEASE=github-app
 ```
 
-2. Verify pods are ready:
+2. In another terminal, run local checks against the port-forward:
 
 ```bash
-kubectl -n github-app get pods
-```
-
-3. Port-forward the service to your workstation and run local checks:
-
-```bash
-kubectl -n github-app port-forward svc/github-app-github-app 8080:80
-```
-
-In another terminal:
-
-```bash
-curl -i http://127.0.0.1:8080/healthz
-curl -i -X POST http://127.0.0.1:8080/webhook -H 'content-type: application/json' -d '{}'
+make helm-local-checks LOCAL_PORT=8080
 ```
 
 Notes:

@@ -35,6 +35,10 @@ TLS_SECRET        ?= github-app-tls
 IMG_REPO          ?= github-app
 IMG_TAG           ?= dev
 FULL_IMAGE        ?= $(IMG_REPO):$(IMG_TAG)
+FULLNAME_OVERRIDE ?=
+APP_SERVICE_NAME  ?= $(if $(FULLNAME_OVERRIDE),$(FULLNAME_OVERRIDE),$(HELM_RELEASE)-github-app)
+LOCAL_PORT        ?= 8080
+SERVICE_PORT      ?= 80
 
 # Platforms for release builds
 PLATFORMS := \
@@ -186,6 +190,35 @@ helm-deploy-local-tls: ## Deploy chart with pre-created TLS secret and cert-mana
 		--set ingress.host=$(HOST) \
 		--set ingress.tls.secretName=$(TLS_SECRET) \
 		--set certManager.enabled=false
+
+.PHONY: helm-deploy-internal-test
+helm-deploy-internal-test: ## Deploy internal-only test release, wait for pods, and port-forward service
+	$(KUBECTL) create namespace $(K8S_NAMESPACE) --dry-run=client -o yaml | $(KUBECTL) apply -f -
+	$(HELM) upgrade --install $(HELM_RELEASE) $(HELM_CHART_PATH) \
+		--namespace $(K8S_NAMESPACE) \
+		--set image.repository=$(IMG_REPO) \
+		--set image.tag=$(IMG_TAG) \
+		--set ingress.enabled=false \
+		$(if $(FULLNAME_OVERRIDE),--set fullnameOverride=$(FULLNAME_OVERRIDE),)
+	$(KUBECTL) -n $(K8S_NAMESPACE) wait \
+		--for=condition=Ready pods \
+		-l app.kubernetes.io/instance=$(HELM_RELEASE) \
+		--timeout=180s
+	$(KUBECTL) -n $(K8S_NAMESPACE) get pods
+	$(KUBECTL) -n $(K8S_NAMESPACE) port-forward svc/$(APP_SERVICE_NAME) $(LOCAL_PORT):$(SERVICE_PORT)
+
+.PHONY: helm-local-checks
+helm-local-checks: ## Run local checks against port-forwarded service (/healthz + empty webhook POST)
+	curl -i --fail http://127.0.0.1:$(LOCAL_PORT)/healthz
+	@status="$$(curl -s -o /tmp/github-app-webhook-check.out -w '%{http_code}' -X POST http://127.0.0.1:$(LOCAL_PORT)/webhook \
+		-H 'content-type: application/json' \
+		-d '{}')"; \
+	if [ "$$status" != "400" ]; then \
+		echo "expected POST /webhook to return HTTP 400, got $$status" >&2; \
+		cat /tmp/github-app-webhook-check.out >&2; \
+		exit 1; \
+	fi; \
+	echo "POST /webhook returned expected HTTP 400"
 
 .PHONY: helm-status
 helm-status: ## Show release and Kubernetes resource status
