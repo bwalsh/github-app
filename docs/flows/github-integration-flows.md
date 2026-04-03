@@ -63,9 +63,13 @@ sequenceDiagram
         H->>REG: Register(installation_id, repo_id) -> tenant
         Note over REG: in-memory map update (ephemeral)
         H->>Q: Enqueue(KindRepoOnboarding)
-        Note over Q: in-memory buffered channel write
+        alt queue full
+            H-->>GH: 503 queue full
+        else enqueued
+            Note over Q: in-memory buffered channel write
+        end
     end
-    APP-->>GH: 200 accepted installation_repositories
+    APP-->>GH: 200 accepted installation_repositories (when all enqueues succeed)
     W->>Q: Dequeue()
     W->>R: Run(job KindRepoOnboarding)
     R-->>W: onboarding workflow completed
@@ -91,7 +95,8 @@ sequenceDiagram
 - Tenant mapping write: `internal/tenant/tenant.go` → `(*Registry).Register`
 - Async onboarding queue write: `internal/queue/queue.go` → `(*Queue).Enqueue`
 - Background processing: `internal/worker/worker.go` → `(*Worker).Start`
-- Workflow execution: `internal/workflow/runner.go` → `(*Runner).Run`
+- Workflow execution interface: `internal/workflow/runner.go` → `workflow.Runner.Run`
+- Current stub implementation: `internal/workflow/runner.go` → `(*StubRunner).Run`
 
 ---
 
@@ -123,18 +128,22 @@ sequenceDiagram
             H-->>GH: 200 accepted (no tenant mapping)
         else tenant found
             H->>Q: Enqueue(KindPushDeploy)
-            Note over Q: in-memory buffered channel write
-            H-->>GH: 200 accepted push
-            W->>Q: Dequeue()
-            W->>R: Run(job KindPushDeploy)
-            R-->>W: deploy workflow completed
+            alt queue full
+                H-->>GH: 503 queue full
+            else enqueued
+                Note over Q: in-memory buffered channel write
+                H-->>GH: 200 accepted push
+                W->>Q: Dequeue()
+                W->>R: Run(job KindPushDeploy)
+                R-->>W: deploy workflow completed
+            end
         end
     end
 ```
 
 ### Data at rest in this flow (when / where / how)
 
-- **When:** only for accepted `refs/heads/main` push events that enqueue work.
+- **When:** only for accepted `refs/heads/main` push events whose queue write succeeds.
 - **Where:** in-process memory (job in queue channel, transient worker variables).
 - **How:** normalized webhook payload fields are copied into a `queue.Job` and sent to channel.
 - **Durability:** none in app process; queued/in-flight jobs are lost on restart.
@@ -152,4 +161,5 @@ sequenceDiagram
 - Tenant lookup: `internal/tenant/tenant.go` → `(*Registry).Lookup`
 - Async deploy queue write: `internal/queue/queue.go` → `(*Queue).Enqueue`
 - Background processing: `internal/worker/worker.go` → `(*Worker).Start`
-- Workflow execution: `internal/workflow/runner.go` → `(*Runner).Run`
+- Workflow execution interface: `internal/workflow/runner.go` → `workflow.Runner.Run`
+- Current stub implementation: `internal/workflow/runner.go` → `(*StubRunner).Run`

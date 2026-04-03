@@ -249,6 +249,8 @@ kind-load-image: docker-build ## Load local container image into Kind nodes
 
 .PHONY: kind-bootstrap
 kind-bootstrap: ## Create Kind cluster and install ingress-nginx + cert-manager
+	@command -v $(KIND) >/dev/null 2>&1 || { echo "$(KIND) is required; install Kind before running kind-bootstrap" >&2; exit 1; }
+	@command -v $(KUBECTL) >/dev/null 2>&1 || { echo "$(KUBECTL) is required; install kubectl before running kind-bootstrap" >&2; exit 1; }
 	$(KIND) get clusters | grep -q "^$(KIND_CLUSTER_NAME)$$" || $(KIND) create cluster --name $(KIND_CLUSTER_NAME)
 	$(KUBECTL) apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/$(INGRESS_NGINX_VERSION)/deploy/static/provider/kind/deploy.yaml
 	$(KUBECTL) -n ingress-nginx rollout status deployment/ingress-nginx-controller --timeout=$(KIND_INGRESS_WAIT_TIMEOUT)

@@ -41,7 +41,7 @@ if [[ -z "${GITHUB_WEBHOOK_SECRET:-}" ]]; then
   # Generate a random ephemeral secret for local deploys instead of using a fixed default
   GITHUB_WEBHOOK_SECRET="$(head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32)"
   export GITHUB_WEBHOOK_SECRET
-  log "GITHUB_WEBHOOK_SECRET not set; generated random ephemeral value for local deploy: ${GITHUB_WEBHOOK_SECRET}"
+  log "GITHUB_WEBHOOK_SECRET not set; generated a random ephemeral value for local deploy"
 fi
 
 log "Bootstrapping Kind cluster and core dependencies"
