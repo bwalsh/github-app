@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -25,7 +26,15 @@ func main() {
 	port := resolvePort(os.Getenv)
 
 	// Wire up multi-tenant dependencies.
-	registry := tenant.New()
+	registry, err := buildTenantRegistry(os.Getenv)
+	if err != nil {
+		log.Fatalf("failed to initialize tenant registry: %v", err)
+	}
+	defer func() {
+		if err := registry.Close(); err != nil {
+			log.Printf("failed to close tenant registry: %v", err)
+		}
+	}()
 	q := queue.New(256)
 	ghClient := githubclient.NewMockClient()
 	wfRunner := &workflow.StubRunner{}
@@ -44,6 +53,25 @@ func main() {
 	if err := run(ctx, addr, mux); err != nil {
 		log.Fatalf("server error: %v", err)
 	}
+}
+
+func buildTenantRegistry(getenv func(string) string) (*tenant.Registry, error) {
+	provider := strings.ToLower(strings.TrimSpace(getenv("TENANT_PERSISTENCE")))
+	if provider == "" || provider == "memory" {
+		return tenant.New(), nil
+	}
+	if provider == "sqlite" {
+		dsn := strings.TrimSpace(getenv("TENANT_SQLITE_DSN"))
+		if dsn == "" {
+			dsn = "/tmp/tenants.db"
+		}
+		p, err := tenant.NewSQLitePersistence(dsn)
+		if err != nil {
+			return nil, err
+		}
+		return tenant.NewWithPersistence(p), nil
+	}
+	return nil, fmt.Errorf("unsupported TENANT_PERSISTENCE %q (supported: memory, sqlite)", provider)
 }
 
 func resolvePort(getenv func(string) string) string {

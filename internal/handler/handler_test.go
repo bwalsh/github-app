@@ -61,10 +61,12 @@ func TestHandleWebhook_Success(t *testing.T) {
 
 func TestHandleWebhook_Push_Accepted(t *testing.T) {
 	reg := tenant.New()
-	reg.Register(
+	if err := reg.Register(
 		tenant.Key{InstallationID: 10, RepositoryID: 20},
 		&tenant.Tenant{Name: "acme", Namespace: "ns-acme"},
-	)
+	); err != nil {
+		t.Fatalf("register failed: %v", err)
+	}
 	q := queue.New(8)
 	h := handler.NewWithDeps("secret", reg, q)
 
@@ -135,10 +137,12 @@ func TestHandleWebhook_Push_NoTenant(t *testing.T) {
 
 func TestHandleWebhook_Push_NonMainRefIgnored(t *testing.T) {
 	reg := tenant.New()
-	reg.Register(
+	if err := reg.Register(
 		tenant.Key{InstallationID: 10, RepositoryID: 20},
 		&tenant.Tenant{Name: "acme", Namespace: "ns-acme"},
-	)
+	); err != nil {
+		t.Fatalf("register failed: %v", err)
+	}
 	q := queue.New(8)
 	h := handler.NewWithDeps("secret", reg, q)
 
@@ -200,7 +204,10 @@ func TestHandleWebhook_RepoOnboarding_Added(t *testing.T) {
 		{InstallationID: 10, RepositoryID: 31},
 	}
 	for _, key := range keys {
-		if _, ok := reg.Lookup(key); !ok {
+		if _, ok, err := reg.Lookup(key); err != nil || !ok {
+			if err != nil {
+				t.Fatalf("lookup failed: %v", err)
+			}
 			t.Errorf("expected tenant registered for key %+v", key)
 		}
 	}

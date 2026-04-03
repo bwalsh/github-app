@@ -70,6 +70,14 @@ run: build ## Build and run the server
 test: ## Run all tests with race detection
 	$(GO) test -race -count=1 ./...
 
+.PHONY: test-tenant
+test-tenant: ## Run tenant package tests (all persistence backends)
+	$(GO) test -count=1 ./internal/tenant
+
+.PHONY: test-tenant-sqlite
+test-tenant-sqlite: ## Run only sqlite-backed tenant persistence tests
+	$(GO) test -count=1 ./internal/tenant -run SQLite
+
 .PHONY: coverage
 coverage: ## Run tests and generate an HTML coverage report
 	@mkdir -p $(BIN_DIR)
@@ -200,11 +208,19 @@ helm-deploy-internal-test: ## Deploy internal-only test release, wait for deploy
 		--set image.tag=$(IMG_TAG) \
 		--set ingress.enabled=false \
 		$(if $(FULLNAME_OVERRIDE),--set fullnameOverride=$(FULLNAME_OVERRIDE),)
-	$(KUBECTL) -n $(K8S_NAMESPACE) wait \
-		--for=condition=Available deployment/$(APP_SERVICE_NAME) \
-		--timeout=180s
+	@DEPLOYMENT_NAME="$$($(KUBECTL) -n $(K8S_NAMESPACE) get deploy -l app.kubernetes.io/instance=$(HELM_RELEASE) -o jsonpath='{.items[0].metadata.name}')"; \
+	if [ -z "$$DEPLOYMENT_NAME" ]; then \
+		echo "no deployment found for app.kubernetes.io/instance=$(HELM_RELEASE) in namespace $(K8S_NAMESPACE)" >&2; \
+		exit 1; \
+	fi; \
+	$(KUBECTL) -n $(K8S_NAMESPACE) wait --for=condition=Available deployment/$$DEPLOYMENT_NAME --timeout=180s
 	$(KUBECTL) -n $(K8S_NAMESPACE) get pods
-	$(KUBECTL) -n $(K8S_NAMESPACE) port-forward svc/$(APP_SERVICE_NAME) $(LOCAL_PORT):$(SERVICE_PORT)
+	@SERVICE_NAME="$$($(KUBECTL) -n $(K8S_NAMESPACE) get svc -l app.kubernetes.io/instance=$(HELM_RELEASE) -o jsonpath='{.items[0].metadata.name}')"; \
+	if [ -z "$$SERVICE_NAME" ]; then \
+		echo "no service found for app.kubernetes.io/instance=$(HELM_RELEASE) in namespace $(K8S_NAMESPACE)" >&2; \
+		exit 1; \
+	fi; \
+	$(KUBECTL) -n $(K8S_NAMESPACE) port-forward svc/$$SERVICE_NAME $(LOCAL_PORT):$(SERVICE_PORT)
 
 .PHONY: helm-local-checks
 helm-local-checks: ## Run local checks against port-forwarded service (/healthz + empty webhook POST)
