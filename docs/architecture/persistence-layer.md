@@ -167,7 +167,7 @@ Use environment variables to choose backend at startup:
 
 - `TENANT_PERSISTENCE=memory` (default)
 - `TENANT_PERSISTENCE=sqlite`
-- `TENANT_SQLITE_DSN=/path/to/tenants.db` (optional for sqlite; defaults to `tenants.db` in process working directory)
+- `TENANT_SQLITE_DSN=/path/to/tenants.db` (optional for sqlite; defaults to `/tmp/tenants.db`)
 
 Example:
 

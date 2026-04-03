@@ -31,7 +31,7 @@ Set the required environment variables and run the binary:
 export GITHUB_WEBHOOK_SECRET=your-secret
 export PORT=8080          # optional, defaults to 8080
 export TENANT_PERSISTENCE=memory  # optional: memory (default) or sqlite
-export TENANT_SQLITE_DSN=tenants.db # optional when using sqlite
+export TENANT_SQLITE_DSN=/tmp/tenants.db # optional when using sqlite (default: /tmp/tenants.db)
 
 ./bin/github-app
 ```

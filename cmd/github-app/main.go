@@ -63,7 +63,7 @@ func buildTenantRegistry(getenv func(string) string) (*tenant.Registry, error) {
 	if provider == "sqlite" {
 		dsn := strings.TrimSpace(getenv("TENANT_SQLITE_DSN"))
 		if dsn == "" {
-			dsn = "tenants.db"
+			dsn = "/tmp/tenants.db"
 		}
 		p, err := tenant.NewSQLitePersistence(dsn)
 		if err != nil {

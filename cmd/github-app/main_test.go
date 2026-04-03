@@ -113,6 +113,31 @@ func TestBuildTenantRegistry_DefaultMemory(t *testing.T) {
 	}
 }
 
+func TestBuildTenantRegistry_SQLite_DefaultDSN(t *testing.T) {
+	r, err := buildTenantRegistry(func(key string) string {
+		if key == "TENANT_PERSISTENCE" {
+			return "sqlite"
+		}
+		return ""
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	t.Cleanup(func() {
+		if err := r.Close(); err != nil {
+			t.Fatalf("close failed: %v", err)
+		}
+	})
+
+	key := tenant.Key{InstallationID: 22, RepositoryID: 33}
+	if err := r.Register(key, &tenant.Tenant{Name: "sqlite-default", Namespace: "ns-default"}); err != nil {
+		t.Fatalf("register failed: %v", err)
+	}
+	if _, ok, err := r.Lookup(key); err != nil || !ok {
+		t.Fatalf("lookup failed: ok=%t err=%v", ok, err)
+	}
+}
+
 func TestBuildTenantRegistry_SQLite(t *testing.T) {
 	dbPath := t.TempDir() + "/tenants.db"
 	r, err := buildTenantRegistry(func(key string) string {
