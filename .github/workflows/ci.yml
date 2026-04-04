@@ -12,6 +12,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Check out repository
@@ -26,6 +27,14 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
+      - name: Verify module checksums
+        run: go mod verify
+
+      - name: Check go mod tidy
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+
       - name: Verify formatting
         run: |
           unformatted="$(gofmt -l .)"
@@ -38,8 +47,19 @@ jobs:
       - name: Run go vet
         run: go vet ./...
 
-      - name: Run tests
-        run: go test -race -count=1 ./...
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.64.8
+
+      - name: Run tests with coverage
+        run: go test -race -count=1 -coverprofile=coverage.out -covermode=atomic ./...
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out
 
       - name: Build
         run: go build -trimpath ./cmd/github-app
@@ -53,14 +73,6 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Set up Helm
-        uses: azure/setup-helm@v4
 
       - name: Set up Kind cluster
         uses: helm/kind-action@v1
@@ -68,8 +80,10 @@ jobs:
           cluster_name: github-app
 
       - name: Run Kind integration deploy/verify
+        # CI_WEBHOOK_SECRET can be any non-empty repository secret for this ephemeral integration test.
+        # If it is unset, scripts/kind-deploy-verify.sh generates a random ephemeral value.
         env:
-          GITHUB_WEBHOOK_SECRET: ci-integration-secret
+          GITHUB_WEBHOOK_SECRET: ${{ secrets.CI_WEBHOOK_SECRET }}
         run: make kind-deploy-verify
 
       - name: Clean up Kind resources

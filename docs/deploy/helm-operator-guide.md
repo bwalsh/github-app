@@ -218,7 +218,7 @@ If `TLS_SECRET` is not present yet (for example, cert-manager has not issued it 
 
 This repository ships with a GitHub Actions workflow at `.github/workflows/ci.yml` that runs:
 
-- `test` job: formatting check, `go vet`, race-enabled unit tests, and binary build.
+- `test` job: dependency verification, formatting check, `go vet`, `golangci-lint`, race-enabled unit tests with a coverage artifact, and binary build.
 - `integration` job: Kind-based deploy/verify flow via `make kind-deploy-verify` (Docker + Kind + Helm).
 
 ### 7.1 Deploy (enable) CI in your repository
@@ -235,8 +235,9 @@ The `integration` job performs an ephemeral cluster deployment on the Actions ru
 1. Creates a Kind cluster named `github-app`.
 2. Installs ingress-nginx and cert-manager (via Makefile targets used by `make kind-deploy-verify`).
 3. Builds Docker image `github-app:dev` and loads it into Kind.
-4. Installs/updates the Helm release and verifies `/healthz` through port-forward.
-5. Runs cleanup (`make kind-clean`) even when earlier steps fail.
+4. Deploys the Helm release via `make kind-deploy-local`.
+5. Port-forwards the service and verifies `/healthz` via `scripts/kind-deploy-verify.sh`.
+6. Runs cleanup (`make kind-clean`) even when earlier steps fail.
 
 This deployment is temporary and exists only for the duration of the workflow run.
 
