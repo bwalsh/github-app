@@ -207,4 +207,3 @@ func (s *sqlitePersistence) exec(sqlStmt string, args ...any) error {
 	}
 	return nil
 }
-

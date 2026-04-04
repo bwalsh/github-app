@@ -3,3 +3,6 @@ dist/
 coverage.html
 *.exe
 .idea/
+coverage.out
+bin/coverage.out
+

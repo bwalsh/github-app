@@ -152,4 +152,3 @@ func TestWorker_NilResultTreatedAsFailure(t *testing.T) {
 		}
 	}
 }
-
