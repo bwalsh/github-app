@@ -97,7 +97,7 @@ The `integration` job correctly sets `timeout-minutes: 45`, but the `test` job h
 
 ## 🟡 Medium
 
-### M1 – GitHub Actions version tags are mutable; pin to commit SHAs
+### M1 – GitHub Actions version tags are mutable; pin to commit SHAs - WON'T FIX
 
 **File:** `.github/workflows/ci.yml`
 
