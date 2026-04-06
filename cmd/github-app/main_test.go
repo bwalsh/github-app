@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	githubclient "github.com/bwalsh/github-app/internal/github"
 	"github.com/bwalsh/github-app/internal/handler"
 	"github.com/bwalsh/github-app/internal/tenant"
 )
@@ -177,5 +178,24 @@ func TestBuildTenantRegistry_UnsupportedProvider(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for unsupported provider")
+	}
+}
+
+func TestBuildGitHubClient_DefaultMock(t *testing.T) {
+	client := buildGitHubClient(func(string) string { return "" })
+	if _, ok := client.(*githubclient.MockClient); !ok {
+		t.Fatalf("expected *github.MockClient, got %T", client)
+	}
+}
+
+func TestBuildGitHubClient_UsesRealClientWhenTokenPresent(t *testing.T) {
+	client := buildGitHubClient(func(key string) string {
+		if key == "GITHUB_TOKEN" {
+			return "test-token"
+		}
+		return ""
+	})
+	if _, ok := client.(*githubclient.RealClient); !ok {
+		t.Fatalf("expected *github.RealClient, got %T", client)
 	}
 }

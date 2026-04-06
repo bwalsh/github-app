@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"sync"
 
 	_ "modernc.org/sqlite"
@@ -75,7 +76,10 @@ func (r *Registry) Register(key Key, t *Tenant) error {
 	if r == nil || r.p == nil {
 		return errors.New("tenant registry persistence is not configured")
 	}
-	return r.p.Register(key, t)
+	err := r.p.Register(key, t)
+	// Audit log
+	logAudit("REGISTER", key.InstallationID, key.RepositoryID, t.Name, err == nil, err)
+	return err
 }
 
 // Lookup returns the Tenant for key, or (nil, false, nil) if not found.
@@ -83,7 +87,16 @@ func (r *Registry) Lookup(key Key) (*Tenant, bool, error) {
 	if r == nil || r.p == nil {
 		return nil, false, errors.New("tenant registry persistence is not configured")
 	}
-	return r.p.Lookup(key)
+	t, ok, err := r.p.Lookup(key)
+	// Audit log only on errors or when tenant not found
+	if err != nil || !ok {
+		tenantName := ""
+		if t != nil {
+			tenantName = t.Name
+		}
+		logAudit("LOOKUP", key.InstallationID, key.RepositoryID, tenantName, ok, err)
+	}
+	return t, ok, err
 }
 
 // Unregister removes the tenant mapping for key.
@@ -91,7 +104,9 @@ func (r *Registry) Unregister(key Key) error {
 	if r == nil || r.p == nil {
 		return errors.New("tenant registry persistence is not configured")
 	}
-	return r.p.Unregister(key)
+	err := r.p.Unregister(key)
+	logAudit("DELETE", key.InstallationID, key.RepositoryID, "", err == nil, err)
+	return err
 }
 
 // Close releases resources held by the configured persistence backend.
@@ -206,4 +221,18 @@ func (s *sqlitePersistence) exec(sqlStmt string, args ...any) error {
 		return err
 	}
 	return nil
+}
+
+// logAudit logs tenant operations for audit trail.
+func logAudit(action string, installID, repoID int64, tenantName string, success bool, err error) {
+	errMsg := ""
+	if err != nil {
+		errMsg = err.Error()
+	}
+	status := "OK"
+	if !success {
+		status = "FAILED"
+	}
+	log.Printf("[audit] action=%s installation=%d repository=%d tenant=%s status=%s error=%s",
+		action, installID, repoID, tenantName, status, errMsg)
 }

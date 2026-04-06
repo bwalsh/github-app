@@ -7,6 +7,7 @@ GitHub must be able to reach your webhook URL over public HTTPS.
 - Webhook URL path: `/webhook`
 - Health endpoint: `/healthz`
 - HTTPS with a certificate trusted by GitHub
+- Webhook signatures are required (`X-Hub-Signature-256`)
 
 ## Option A: Public DNS + ingress (recommended)
 
@@ -61,3 +62,20 @@ In GitHub App settings:
 - `kubectl -n github-app get pods`
 - Confirm readiness/liveness probes are passing on `/healthz`.
 - Confirm GitHub webhook deliveries return 2xx.
+
+## Local signed webhook smoke test
+
+Use this to verify your endpoint behavior before wiring GitHub:
+
+```bash
+body='{"action":"opened","repository":{"full_name":"org/repo"},"sender":{"login":"alice"}}'
+secret='replace-me'
+sig=$(printf '%s' "$body" | openssl dgst -sha256 -hmac "$secret" -hex | sed 's/^.* //')
+
+curl -i -X POST https://<public-host>/webhook \
+  -H "Content-Type: application/json" \
+  -H "X-GitHub-Event: pull_request" \
+  -H "X-Hub-Signature-256: sha256=$sig" \
+  -d "$body"
+```
+

@@ -1,6 +1,9 @@
 package handler_test
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -23,10 +26,69 @@ func TestHandleWebhook_MissingEventHeader(t *testing.T) {
 	}
 }
 
-func TestHandleWebhook_InvalidJSON(t *testing.T) {
+func TestHandleWebhook_MissingSignature_ReturnsUnauthorized(t *testing.T) {
 	h := handler.New("test-secret")
-	req := httptest.NewRequest(http.MethodPost, "/webhook", strings.NewReader(`not-json`))
+	req := httptest.NewRequest(http.MethodPost, "/webhook", strings.NewReader(`{}`))
+	req.Header.Set("X-GitHub-Event", "pull_request")
+	// NOTE: No X-Hub-Signature-256 header
+	w := httptest.NewRecorder()
+
+	h.HandleWebhook(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for missing signature, got %d", w.Code)
+	}
+}
+
+func TestHandleWebhook_InvalidSignature_ReturnsUnauthorized(t *testing.T) {
+	h := handler.New("test-secret")
+	req := httptest.NewRequest(http.MethodPost, "/webhook", strings.NewReader(`{}`))
+	req.Header.Set("X-GitHub-Event", "pull_request")
+	req.Header.Set("X-Hub-Signature-256", "sha256=deadbeefdeadbeef")
+	w := httptest.NewRecorder()
+
+	h.HandleWebhook(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for invalid signature, got %d", w.Code)
+	}
+}
+
+func TestHandleWebhook_ValidSignature_Succeeds(t *testing.T) {
+	secret := "test-secret"
+	h := handler.New(secret)
+	body := `{"action":"opened","repository":{"full_name":"bwalsh/github-app"},"sender":{"login":"bwalsh"}}`
+
+	// Compute HMAC-SHA256
+	hash := hmac.New(sha256.New, []byte(secret))
+	hash.Write([]byte(body))
+	sig := "sha256=" + hex.EncodeToString(hash.Sum(nil))
+
+	req := httptest.NewRequest(http.MethodPost, "/webhook", strings.NewReader(body))
+	req.Header.Set("X-GitHub-Event", "pull_request")
+	req.Header.Set("X-Hub-Signature-256", sig)
+	w := httptest.NewRecorder()
+
+	h.HandleWebhook(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200 for valid signature, got %d", w.Code)
+	}
+}
+
+func TestHandleWebhook_InvalidJSON(t *testing.T) {
+	secret := "test-secret"
+	h := handler.New(secret)
+	body := "not-json"
+
+	// Compute valid signature for invalid JSON body
+	hash := hmac.New(sha256.New, []byte(secret))
+	hash.Write([]byte(body))
+	sig := "sha256=" + hex.EncodeToString(hash.Sum(nil))
+
+	req := httptest.NewRequest(http.MethodPost, "/webhook", strings.NewReader(body))
 	req.Header.Set("X-GitHub-Event", "push")
+	req.Header.Set("X-Hub-Signature-256", sig)
 	w := httptest.NewRecorder()
 
 	h.HandleWebhook(w, req)
@@ -37,10 +99,18 @@ func TestHandleWebhook_InvalidJSON(t *testing.T) {
 }
 
 func TestHandleWebhook_Success(t *testing.T) {
-	h := handler.New("test-secret")
+	secret := "test-secret"
+	h := handler.New(secret)
 	payload := `{"action":"opened","repository":{"full_name":"bwalsh/github-app"},"sender":{"login":"bwalsh"}}`
+
+	// Compute valid signature
+	hash := hmac.New(sha256.New, []byte(secret))
+	hash.Write([]byte(payload))
+	sig := "sha256=" + hex.EncodeToString(hash.Sum(nil))
+
 	req := httptest.NewRequest(http.MethodPost, "/webhook", strings.NewReader(payload))
 	req.Header.Set("X-GitHub-Event", "pull_request")
+	req.Header.Set("X-Hub-Signature-256", sig)
 	w := httptest.NewRecorder()
 
 	h.HandleWebhook(w, req)
@@ -57,9 +127,18 @@ func TestHandleWebhook_Success(t *testing.T) {
 	}
 }
 
+// ...existing code...
+
+func computeSignature(secret, body string) string {
+	hash := hmac.New(sha256.New, []byte(secret))
+	hash.Write([]byte(body))
+	return "sha256=" + hex.EncodeToString(hash.Sum(nil))
+}
+
 // --- Push Deployment ---
 
 func TestHandleWebhook_Push_Accepted(t *testing.T) {
+	secret := "test-secret"
 	reg := tenant.New()
 	if err := reg.Register(
 		tenant.Key{InstallationID: 10, RepositoryID: 20},
@@ -68,7 +147,7 @@ func TestHandleWebhook_Push_Accepted(t *testing.T) {
 		t.Fatalf("register failed: %v", err)
 	}
 	q := queue.New(8)
-	h := handler.NewWithDeps("secret", reg, q)
+	h := handler.NewWithDeps(secret, reg, q)
 
 	payload := `{
 		"ref":"refs/heads/main",
@@ -79,6 +158,7 @@ func TestHandleWebhook_Push_Accepted(t *testing.T) {
 	}`
 	req := httptest.NewRequest(http.MethodPost, "/webhook", strings.NewReader(payload))
 	req.Header.Set("X-GitHub-Event", "push")
+	req.Header.Set("X-Hub-Signature-256", computeSignature(secret, payload))
 	w := httptest.NewRecorder()
 
 	h.HandleWebhook(w, req)
@@ -107,9 +187,10 @@ func TestHandleWebhook_Push_Accepted(t *testing.T) {
 }
 
 func TestHandleWebhook_Push_NoTenant(t *testing.T) {
+	secret := "test-secret"
 	reg := tenant.New() // empty registry — no tenant registered
 	q := queue.New(8)
-	h := handler.NewWithDeps("secret", reg, q)
+	h := handler.NewWithDeps(secret, reg, q)
 
 	payload := `{
 		"ref":"refs/heads/main",
@@ -120,6 +201,7 @@ func TestHandleWebhook_Push_NoTenant(t *testing.T) {
 	}`
 	req := httptest.NewRequest(http.MethodPost, "/webhook", strings.NewReader(payload))
 	req.Header.Set("X-GitHub-Event", "push")
+	req.Header.Set("X-Hub-Signature-256", computeSignature(secret, payload))
 	w := httptest.NewRecorder()
 
 	h.HandleWebhook(w, req)
@@ -136,6 +218,7 @@ func TestHandleWebhook_Push_NoTenant(t *testing.T) {
 }
 
 func TestHandleWebhook_Push_NonMainRefIgnored(t *testing.T) {
+	secret := "test-secret"
 	reg := tenant.New()
 	if err := reg.Register(
 		tenant.Key{InstallationID: 10, RepositoryID: 20},
@@ -144,7 +227,7 @@ func TestHandleWebhook_Push_NonMainRefIgnored(t *testing.T) {
 		t.Fatalf("register failed: %v", err)
 	}
 	q := queue.New(8)
-	h := handler.NewWithDeps("secret", reg, q)
+	h := handler.NewWithDeps(secret, reg, q)
 
 	payload := `{
 		"ref":"refs/heads/feature-x",
@@ -155,6 +238,7 @@ func TestHandleWebhook_Push_NonMainRefIgnored(t *testing.T) {
 	}`
 	req := httptest.NewRequest(http.MethodPost, "/webhook", strings.NewReader(payload))
 	req.Header.Set("X-GitHub-Event", "push")
+	req.Header.Set("X-Hub-Signature-256", computeSignature(secret, payload))
 	w := httptest.NewRecorder()
 
 	h.HandleWebhook(w, req)
@@ -175,9 +259,10 @@ func TestHandleWebhook_Push_NonMainRefIgnored(t *testing.T) {
 // --- Repo Onboarding ---
 
 func TestHandleWebhook_RepoOnboarding_Added(t *testing.T) {
+	secret := "test-secret"
 	reg := tenant.New()
 	q := queue.New(8)
-	h := handler.NewWithDeps("secret", reg, q)
+	h := handler.NewWithDeps(secret, reg, q)
 
 	payload := `{
 		"action":"added",
@@ -190,6 +275,7 @@ func TestHandleWebhook_RepoOnboarding_Added(t *testing.T) {
 	}`
 	req := httptest.NewRequest(http.MethodPost, "/webhook", strings.NewReader(payload))
 	req.Header.Set("X-GitHub-Event", "installation_repositories")
+	req.Header.Set("X-Hub-Signature-256", computeSignature(secret, payload))
 	w := httptest.NewRecorder()
 
 	h.HandleWebhook(w, req)
@@ -231,13 +317,75 @@ done:
 	}
 }
 
-func TestHandleWebhook_RepoOnboarding_Removed_Ignored(t *testing.T) {
+func TestHandleWebhook_RepoOnboarding_NewRepoReturnsOK(t *testing.T) {
+	secret := "test-secret"
+	reg := tenant.New()
 	q := queue.New(8)
-	h := handler.NewWithDeps("secret", tenant.New(), q)
+	h := handler.NewWithDeps(secret, reg, q)
+
+	payload := `{
+		"action":"added",
+		"installation":{"id":42},
+		"repositories_added":[{"id":77,"full_name":"acme/new-repo"}],
+		"sender":{"login":"alice"}
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/webhook", strings.NewReader(payload))
+	req.Header.Set("X-GitHub-Event", "installation_repositories")
+	req.Header.Set("X-Hub-Signature-256", computeSignature(secret, payload))
+	w := httptest.NewRecorder()
+
+	h.HandleWebhook(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	key := tenant.Key{InstallationID: 42, RepositoryID: 77}
+	if _, ok, err := reg.Lookup(key); err != nil || !ok {
+		t.Fatalf("expected tenant registered for key %+v, ok=%t err=%v", key, ok, err)
+	}
+}
+
+func TestHandleWebhook_RepoOnboarding_ExistingRepoReturnsConflict(t *testing.T) {
+	secret := "test-secret"
+	reg := tenant.New()
+	key := tenant.Key{InstallationID: 42, RepositoryID: 77}
+	if err := reg.Register(key, &tenant.Tenant{Name: "existing", Namespace: "ns-existing"}); err != nil {
+		t.Fatalf("pre-register failed: %v", err)
+	}
+	q := queue.New(8)
+	h := handler.NewWithDeps(secret, reg, q)
+
+	payload := `{
+		"action":"added",
+		"installation":{"id":42},
+		"repositories_added":[{"id":77,"full_name":"acme/new-repo"}],
+		"sender":{"login":"alice"}
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/webhook", strings.NewReader(payload))
+	req.Header.Set("X-GitHub-Event", "installation_repositories")
+	req.Header.Set("X-Hub-Signature-256", computeSignature(secret, payload))
+	w := httptest.NewRecorder()
+
+	h.HandleWebhook(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected 409 for existing repo, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(strings.ToLower(w.Body.String()), "already exists") {
+		t.Fatalf("expected already exists message, got: %s", w.Body.String())
+	}
+}
+
+func TestHandleWebhook_RepoOnboarding_Removed_Ignored(t *testing.T) {
+	secret := "test-secret"
+	q := queue.New(8)
+	h := handler.NewWithDeps(secret, tenant.New(), q)
 
 	payload := `{"action":"removed","installation":{"id":10},"repositories_removed":[{"id":30,"full_name":"acme/old"}]}`
 	req := httptest.NewRequest(http.MethodPost, "/webhook", strings.NewReader(payload))
 	req.Header.Set("X-GitHub-Event", "installation_repositories")
+	req.Header.Set("X-Hub-Signature-256", computeSignature(secret, payload))
 	w := httptest.NewRecorder()
 
 	h.HandleWebhook(w, req)
@@ -253,9 +401,10 @@ func TestHandleWebhook_RepoOnboarding_Removed_Ignored(t *testing.T) {
 }
 
 func TestHandleWebhook_RepoOnboarding_QueueFullReturns503(t *testing.T) {
+	secret := "test-secret"
 	reg := tenant.New()
 	q := queue.New(1)
-	h := handler.NewWithDeps("secret", reg, q)
+	h := handler.NewWithDeps(secret, reg, q)
 
 	payload := `{
 		"action":"added",
@@ -268,6 +417,7 @@ func TestHandleWebhook_RepoOnboarding_QueueFullReturns503(t *testing.T) {
 	}`
 	req := httptest.NewRequest(http.MethodPost, "/webhook", strings.NewReader(payload))
 	req.Header.Set("X-GitHub-Event", "installation_repositories")
+	req.Header.Set("X-Hub-Signature-256", computeSignature(secret, payload))
 	w := httptest.NewRecorder()
 
 	h.HandleWebhook(w, req)

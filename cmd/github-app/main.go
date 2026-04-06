@@ -36,7 +36,7 @@ func main() {
 		}
 	}()
 	q := queue.New(256)
-	ghClient := githubclient.NewMockClient()
+	ghClient := buildGitHubClient(os.Getenv)
 	wfRunner := &workflow.StubRunner{}
 	w := worker.New(q, ghClient, wfRunner)
 
@@ -72,6 +72,16 @@ func buildTenantRegistry(getenv func(string) string) (*tenant.Registry, error) {
 		return tenant.NewWithPersistence(p), nil
 	}
 	return nil, fmt.Errorf("unsupported TENANT_PERSISTENCE %q (supported: memory, sqlite)", provider)
+}
+
+func buildGitHubClient(getenv func(string) string) githubclient.Client {
+	token := strings.TrimSpace(getenv("GITHUB_TOKEN"))
+	if token == "" {
+		log.Printf("github client mode=mock (set GITHUB_TOKEN to use real GitHub API)")
+		return githubclient.NewMockClient()
+	}
+	log.Printf("github client mode=real")
+	return githubclient.NewRealClient(token)
 }
 
 func resolvePort(getenv func(string) string) string {
