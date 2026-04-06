@@ -122,8 +122,12 @@ func TestMultipleInstallationsSameRepo(t *testing.T) {
 	}
 
 	// Verify job enqueued with correct tenant
+	var job1 *queue.Job
 	select {
-	case job1 := <-q.Jobs():
+	case job1 = <-q.Jobs():
+		if job1 == nil {
+			t.Fatal("first job: got nil job from queue")
+		}
 		if job1.TenantName != "tenant-100-50" {
 			t.Errorf("job1 tenant: got %q, want tenant-100-50", job1.TenantName)
 		}
@@ -155,9 +159,12 @@ func TestMultipleInstallationsSameRepo(t *testing.T) {
 	}
 
 	// Verify job enqueued with correct tenant
-	var job2 queue.Job
+	var job2 *queue.Job
 	select {
 	case job2 = <-q.Jobs():
+		if job2 == nil {
+			t.Fatal("second job: got nil job from queue")
+		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for second job to be enqueued")
 	}
