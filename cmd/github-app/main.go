@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -36,7 +37,10 @@ func main() {
 		}
 	}()
 	q := queue.New(256)
-	ghClient := buildGitHubClient(os.Getenv)
+	ghClient, err := buildGitHubClient(os.Getenv)
+	if err != nil {
+		log.Fatalf("failed to initialize github client: %v", err)
+	}
 	wfRunner := &workflow.StubRunner{}
 	w := worker.New(q, ghClient, wfRunner)
 
@@ -74,14 +78,36 @@ func buildTenantRegistry(getenv func(string) string) (*tenant.Registry, error) {
 	return nil, fmt.Errorf("unsupported TENANT_PERSISTENCE %q (supported: memory, sqlite)", provider)
 }
 
-func buildGitHubClient(getenv func(string) string) githubclient.Client {
+func buildGitHubClient(getenv func(string) string) (githubclient.Client, error) {
 	token := strings.TrimSpace(getenv("GITHUB_TOKEN"))
-	if token == "" {
-		log.Printf("github client mode=mock (set GITHUB_TOKEN to use real GitHub API)")
-		return githubclient.NewMockClient()
+	appIDValue := strings.TrimSpace(getenv("GITHUB_APP_ID"))
+	privateKey := strings.TrimSpace(getenv("GITHUB_APP_PRIVATE_KEY"))
+
+	if appIDValue != "" || privateKey != "" {
+		if appIDValue == "" || privateKey == "" {
+			return nil, fmt.Errorf("GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY must be set together")
+		}
+
+		appID, err := strconv.ParseInt(appIDValue, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid GITHUB_APP_ID %q: %w", appIDValue, err)
+		}
+
+		client, err := githubclient.NewAppClient(appID, privateKey)
+		if err != nil {
+			return nil, fmt.Errorf("create app client: %w", err)
+		}
+
+		log.Printf("github client mode=app installation_tokens=dynamic")
+		return client, nil
 	}
-	log.Printf("github client mode=real")
-	return githubclient.NewRealClient(token)
+
+	if token == "" {
+		log.Printf("github client mode=mock (set GITHUB_APP_ID/GITHUB_APP_PRIVATE_KEY or GITHUB_TOKEN to use real GitHub API)")
+		return githubclient.NewMockClient(), nil
+	}
+	log.Printf("github client mode=real token_source=static (single-installation fallback)")
+	return githubclient.NewRealClient(token), nil
 }
 
 func resolvePort(getenv func(string) string) string {

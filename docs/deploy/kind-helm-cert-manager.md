@@ -53,6 +53,23 @@ This creates/updates the `github-app-secrets` Secret in namespace `github-app`.
 `kind-create-secrets` also accepts `GITHUB_APP_PRIVATE_KEY` directly for compatibility, but
 `GITHUB_APP_PRIVATE_KEY_FILE` is recommended to avoid brittle multiline shell handling.
 
+### Credential precedence at runtime
+
+When the app needs to report checks or commit statuses, it resolves GitHub API credentials in this order:
+
+1. `GITHUB_APP_ID` + `GITHUB_APP_PRIVATE_KEY`
+   - Preferred mode.
+   - The service mints installation tokens dynamically per job using the webhook `installation_id`.
+2. `GITHUB_TOKEN`
+   - Fallback mode.
+   - Reuses one token for every job, so treat it as a single-installation compatibility option.
+3. No GitHub API credentials
+   - The service still starts, but GitHub reporting uses the mock client.
+
+`GITHUB_APP_INSTALLATION_ID` may still be present in the secret because the helper target and chart support it, but dynamic GitHub App credentials take precedence whenever `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY` are both configured.
+
+If you need the static `GITHUB_TOKEN` fallback in Kind, inject it explicitly through Helm `extraEnv`; the stock chart only wires the webhook secret plus GitHub App credential keys.
+
 ### Secret schema consumed by the chart
 
 - `github-webhook-secret` -> `GITHUB_WEBHOOK_SECRET`

@@ -41,6 +41,26 @@ export TENANT_SQLITE_DSN=/tmp/tenants.db # optional when using sqlite (default: 
 ./bin/github-app
 ```
 
+### GitHub API credentials
+
+When the service needs to create check runs or commit statuses, it resolves credentials in this order:
+
+1. `GITHUB_APP_ID` **and** `GITHUB_APP_PRIVATE_KEY`
+   - Preferred mode.
+   - The app mints installation tokens dynamically per webhook job, keyed by `installation_id`.
+   - Use this for multi-installation deployments.
+2. `GITHUB_TOKEN`
+   - Fallback mode.
+   - The same token is reused for every job, so this is only appropriate when you intentionally operate against a single installation or repository scope.
+3. No GitHub API credentials
+   - The service falls back to the mock GitHub client and does not call the real GitHub API.
+
+Notes:
+
+- `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY` must be set together.
+- `GITHUB_APP_PRIVATE_KEY` may be provided either as a normal PEM block or with escaped `\n` newlines.
+- `GITHUB_APP_INSTALLATION_ID` may still appear in Kubernetes secret plumbing for compatibility, but runtime credential selection prefers dynamic installation tokens whenever `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY` are present.
+
 ### Endpoints
 
 | Endpoint | Method | Description |
@@ -91,6 +111,8 @@ Quick start:
 export GITHUB_WEBHOOK_SECRET=replace-me
 ./scripts/kind-deploy-verify.sh
 ```
+
+For Kubernetes/operator deployments, prefer supplying `GITHUB_APP_ID` plus `GITHUB_APP_PRIVATE_KEY` so the app can mint installation-specific tokens. Use `GITHUB_TOKEN` only as a static single-installation fallback; see [`docs/deploy/helm-operator-guide.md`](docs/deploy/helm-operator-guide.md) for the credential wiring options.
 
 ## Contributing
 

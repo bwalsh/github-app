@@ -33,6 +33,26 @@ The chart expects a Kubernetes Secret with these keys:
 
 > The Deployment references these through `secrets.githubWebhookSecretRef` and `secrets.githubAppRef` values.
 
+### Runtime credential precedence
+
+At runtime, the application resolves GitHub API credentials in this order:
+
+1. `GITHUB_APP_ID` **and** `GITHUB_APP_PRIVATE_KEY`
+   - Preferred mode.
+   - The service mints installation tokens dynamically for each webhook job using that job's `installation_id`.
+   - This is the correct configuration for multi-installation GitHub App deployments.
+2. `GITHUB_TOKEN`
+   - Fallback mode.
+   - The same token is reused for every job, so treat this as a static single-installation or narrow-scope compatibility path.
+3. No GitHub API credentials
+   - The service starts, but GitHub status/check reporting uses the mock client instead of the real GitHub API.
+
+Important details:
+
+- `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY` must be present together to activate dynamic installation-token mode.
+- `GITHUB_APP_INSTALLATION_ID` may still be stored in the Kubernetes Secret for compatibility with existing chart wiring, but it does **not** take precedence over dynamic per-installation token minting.
+- The chart does **not** inject `GITHUB_TOKEN` by default; if you need the fallback mode, add it explicitly through `extraEnv` and a Secret reference.
+
 ---
 
 ## 2) Create namespace and required secret
@@ -60,6 +80,12 @@ Behavior of `make k8s-create-secrets`:
 
 If you use different key names or a different secret name, override `secrets.*` values at install time.
 
+Recommended operator path:
+
+- For production or any deployment that handles more than one GitHub App installation, provide `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY` so the service can mint installation-specific tokens.
+- Keep `GITHUB_APP_INSTALLATION_ID` only if your existing secret-management flow or Helm wiring expects it.
+- Use `GITHUB_TOKEN` only when you intentionally want a static fallback token. Because the stock chart does not wire `GITHUB_TOKEN`, inject it yourself via `extraEnv` if needed.
+
 ### Where these values come from in GitHub
 
 Use your **GitHub App** settings page to collect the values before creating `github-app-secrets`:
@@ -79,7 +105,9 @@ Use your **GitHub App** settings page to collect the values before creating `git
 
 - If `github-webhook-secret` key (or the backing Secret) is missing, Kubernetes cannot resolve `GITHUB_WEBHOOK_SECRET` and the pod will fail to start (`CreateContainerConfigError`).
 - `github-app-id`, `github-app-installation-id`, and `github-app-private-key` are marked optional in the Deployment, so pods can still start if they are absent.
-- Current application behavior: webhook handling still runs without app credentials because event processing in this service does not currently require those three values.
+- If `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY` are both present, the application uses dynamic installation-token auth.
+- If app credentials are absent but `GITHUB_TOKEN` is injected separately, the application uses that static token as a fallback.
+- If neither app credentials nor `GITHUB_TOKEN` are provided, the application still starts, but webhook-triggered GitHub status/check reporting runs in mock mode rather than calling the real GitHub API.
 - Security note: this codebase currently does not enforce webhook signature verification in the handler; set and manage `github-webhook-secret` anyway so future signature validation can be enabled without secret migration.
 
 ### Secret key mapping used by `k8s-create-secrets`
@@ -88,6 +116,27 @@ Use your **GitHub App** settings page to collect the values before creating `git
 - `github-app-id` <- `GITHUB_APP_ID` (included only when paired with installation ID)
 - `github-app-installation-id` <- `GITHUB_APP_INSTALLATION_ID` (included only when paired with app ID)
 - `github-app-private-key` <- `GITHUB_APP_PRIVATE_KEY_FILE` (preferred) or `GITHUB_APP_PRIVATE_KEY`
+
+### Optional static-token fallback via `extraEnv`
+
+If you cannot provide GitHub App credentials and need the static `GITHUB_TOKEN` fallback, inject it explicitly because the chart does not expose a dedicated value for it by default.
+
+Example `values-static-token.yaml` snippet:
+
+```yaml
+extraEnv:
+  - name: GITHUB_TOKEN
+    valueFrom:
+      secretKeyRef:
+        name: github-app-secrets
+        key: github-token
+```
+
+In that configuration:
+
+- `GITHUB_APP_ID` + `GITHUB_APP_PRIVATE_KEY` still win if both are also present.
+- `GITHUB_TOKEN` is used only when dynamic GitHub App credentials are not configured.
+- The token should be treated as a single-installation fallback, not a multi-installation solution.
 
 ---
 

@@ -2,6 +2,10 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"net"
 	"net/http"
@@ -182,20 +186,75 @@ func TestBuildTenantRegistry_UnsupportedProvider(t *testing.T) {
 }
 
 func TestBuildGitHubClient_DefaultMock(t *testing.T) {
-	client := buildGitHubClient(func(string) string { return "" })
+	client, err := buildGitHubClient(func(string) string { return "" })
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
 	if _, ok := client.(*githubclient.MockClient); !ok {
 		t.Fatalf("expected *github.MockClient, got %T", client)
 	}
 }
 
 func TestBuildGitHubClient_UsesRealClientWhenTokenPresent(t *testing.T) {
-	client := buildGitHubClient(func(key string) string {
+	client, err := buildGitHubClient(func(key string) string {
 		if key == "GITHUB_TOKEN" {
 			return "test-token"
 		}
 		return ""
 	})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
 	if _, ok := client.(*githubclient.RealClient); !ok {
 		t.Fatalf("expected *github.RealClient, got %T", client)
 	}
+}
+
+func TestBuildGitHubClient_UsesAppClientWhenCredentialsPresent(t *testing.T) {
+	privateKeyPEM := testRSAPrivateKeyPEM(t)
+	client, err := buildGitHubClient(func(key string) string {
+		switch key {
+		case "GITHUB_APP_ID":
+			return "123456"
+		case "GITHUB_APP_PRIVATE_KEY":
+			return privateKeyPEM
+		default:
+			return ""
+		}
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if _, ok := client.(*githubclient.RealClient); !ok {
+		t.Fatalf("expected *github.RealClient, got %T", client)
+	}
+}
+
+func TestBuildGitHubClient_AppCredentialsMustBePaired(t *testing.T) {
+	_, err := buildGitHubClient(func(key string) string {
+		if key == "GITHUB_APP_ID" {
+			return "123456"
+		}
+		return ""
+	})
+	if err == nil {
+		t.Fatal("expected error for partial app credentials")
+	}
+	if !strings.Contains(err.Error(), "must be set together") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func testRSAPrivateKeyPEM(t *testing.T) string {
+	t.Helper()
+
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate private key: %v", err)
+	}
+
+	return string(pem.EncodeToMemory(&pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(privateKey),
+	}))
 }
