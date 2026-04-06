@@ -2,11 +2,15 @@
 package handler
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/bwalsh/github-app/internal/queue"
 	"github.com/bwalsh/github-app/internal/tenant"
@@ -77,6 +81,14 @@ func (h *Handler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate webhook signature
+	signature := r.Header.Get("X-Hub-Signature-256")
+	if !h.verifySignature(body, signature) {
+		log.Printf("[handler] invalid webhook signature")
+		http.Error(w, "invalid signature", http.StatusUnauthorized)
+		return
+	}
+
 	switch eventType {
 	case "push":
 		h.handlePush(w, body)
@@ -85,6 +97,32 @@ func (h *Handler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 	default:
 		h.handleGeneric(w, eventType, body)
 	}
+}
+
+// verifySignature validates the GitHub webhook signature using HMAC-SHA256.
+// GitHub sends the signature in the X-Hub-Signature-256 header.
+// Format: sha256=<hex(HMAC-SHA256(body, secret))>
+func (h *Handler) verifySignature(body []byte, signature string) bool {
+	if signature == "" {
+		return false
+	}
+
+	// Signature format: sha256=<hex>
+	parts := strings.SplitN(signature, "=", 2)
+	if len(parts) != 2 || parts[0] != "sha256" {
+		return false
+	}
+
+	provided, err := hex.DecodeString(strings.TrimSpace(parts[1]))
+	if err != nil || len(provided) != sha256.Size {
+		return false
+	}
+
+	hash := hmac.New(sha256.New, []byte(h.secret))
+	hash.Write(body)
+	expected := hash.Sum(nil)
+
+	return hmac.Equal(provided, expected)
 }
 
 func (h *Handler) handlePush(w http.ResponseWriter, body []byte) {
@@ -167,6 +205,18 @@ func (h *Handler) handleInstallationRepositories(w http.ResponseWriter, body []b
 		}
 
 		if h.registry != nil {
+			if _, exists, err := h.registry.Lookup(key); err != nil {
+				log.Printf("[handler] failed to check existing tenant installation=%d repo=%s: %v",
+					p.Installation.ID, repo.FullName, err)
+				http.Error(w, "tenant registry unavailable", http.StatusInternalServerError)
+				return
+			} else if exists {
+				log.Printf("[handler] tenant already exists installation=%d repo=%s",
+					p.Installation.ID, repo.FullName)
+				http.Error(w, "tenant already exists", http.StatusConflict)
+				return
+			}
+
 			if err := h.registry.Register(key, t); err != nil {
 				log.Printf("[handler] failed to register tenant installation=%d repo=%s: %v",
 					p.Installation.ID, repo.FullName, err)

@@ -59,6 +59,7 @@ func (w *Worker) Start(ctx context.Context) {
 // process runs the full Checks API lifecycle for a single job.
 func (w *Worker) process(ctx context.Context, job *queue.Job) {
 	checkName := checkRunName(job.Kind)
+	statusContext := "github-app/" + checkName
 
 	log.Printf("[worker] processing kind=%s tenant=%s repo=%s sha=%s",
 		job.Kind, job.TenantName, job.RepoFullName, job.HeadSHA)
@@ -69,6 +70,18 @@ func (w *Worker) process(ctx context.Context, job *queue.Job) {
 	if err != nil {
 		log.Printf("[worker] failed to create check run: %v", err)
 		return
+	}
+
+	if job.Kind == queue.KindPushDeploy {
+		if err := w.github.CreateCommitStatus(ctx,
+			job.InstallationID, job.RepoFullName, job.HeadSHA,
+			githubclient.CommitStatus{
+				State:       "pending",
+				Context:     statusContext,
+				Description: "workflow started",
+			}); err != nil {
+			log.Printf("[worker] failed to create pending commit status: %v", err)
+		}
 	}
 
 	// Step 2: Run the (stubbed) workflow
@@ -99,6 +112,24 @@ func (w *Worker) process(ctx context.Context, job *queue.Job) {
 	if err := w.github.UpdateCheckRun(ctx,
 		job.InstallationID, job.RepoFullName, checkRunID, finalStatus); err != nil {
 		log.Printf("[worker] failed to update check run %d: %v", checkRunID, err)
+	}
+
+	if job.Kind == queue.KindPushDeploy {
+		state := "failure"
+		description := "workflow failed"
+		if finalStatus.Conclusion == "success" {
+			state = "success"
+			description = "workflow completed"
+		}
+		if err := w.github.CreateCommitStatus(ctx,
+			job.InstallationID, job.RepoFullName, job.HeadSHA,
+			githubclient.CommitStatus{
+				State:       state,
+				Context:     statusContext,
+				Description: description,
+			}); err != nil {
+			log.Printf("[worker] failed to create final commit status: %v", err)
+		}
 	}
 }
 

@@ -133,3 +133,34 @@ func TestCreateCheckRun_ConcurrentUniqueIDs(t *testing.T) {
 		t.Fatalf("stored check runs: got %d, want %d", got, n)
 	}
 }
+
+func TestCreateCommitStatus_AppendsInOrder(t *testing.T) {
+	m := NewMockClient()
+	ctx := context.Background()
+
+	if err := m.CreateCommitStatus(ctx, 10, "org/repo", "abc123", CommitStatus{
+		State:       "pending",
+		Context:     "github-app/push-deployment",
+		Description: "workflow started",
+	}); err != nil {
+		t.Fatalf("create pending status failed: %v", err)
+	}
+	if err := m.CreateCommitStatus(ctx, 10, "org/repo", "abc123", CommitStatus{
+		State:       "success",
+		Context:     "github-app/push-deployment",
+		Description: "workflow completed",
+	}); err != nil {
+		t.Fatalf("create success status failed: %v", err)
+	}
+
+	statuses := m.AllCommitStatuses()
+	if len(statuses) != 2 {
+		t.Fatalf("got %d statuses, want 2", len(statuses))
+	}
+	if statuses[0].Status.State != "pending" {
+		t.Fatalf("first state: got %q, want pending", statuses[0].Status.State)
+	}
+	if statuses[1].Status.State != "success" {
+		t.Fatalf("second state: got %q, want success", statuses[1].Status.State)
+	}
+}

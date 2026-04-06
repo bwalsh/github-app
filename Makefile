@@ -70,6 +70,30 @@ run: build ## Build and run the server
 test: ## Run all tests with race detection
 	$(GO) test -race -count=1 ./...
 
+.PHONY: test-unit
+test-unit: ## Run unit tests only (no integration tests)
+	$(GO) test -race -count=1 ./internal/... ./cmd/...
+
+.PHONY: test-integration
+test-integration: ## Run integration tests (HTTP, E2E, error scenarios)
+	$(GO) test -race -count=1 ./tests/integration/...
+
+.PHONY: test-signature
+test-signature: ## Run webhook signature validation tests
+	$(GO) test -race -count=1 ./internal/handler -run Signature
+
+.PHONY: test-http-integration
+test-http-integration: ## Run HTTP integration tests
+	$(GO) test -race -count=1 ./tests/integration -run "HTTP|Health"
+
+.PHONY: test-e2e
+test-e2e: ## Run end-to-end webhook flow tests
+	$(GO) test -race -count=1 ./tests/integration -run "EndToEnd"
+
+.PHONY: test-error-scenarios
+test-error-scenarios: ## Run error scenario and multi-tenant tests
+	$(GO) test -race -count=1 ./tests/integration -run "Malformed|WorkerHandlesGitHubAPIFailure|MultipleInstallations|Concurrent"
+
 .PHONY: test-tenant
 test-tenant: ## Run tenant package tests (all persistence backends)
 	$(GO) test -count=1 ./internal/tenant
@@ -84,6 +108,9 @@ coverage: ## Run tests and generate an HTML coverage report
 	$(GO) test -race -coverprofile=$(BIN_DIR)/coverage.out -covermode=atomic ./...
 	$(GO) tool cover -html=$(BIN_DIR)/coverage.out -o coverage.html
 	@echo "Coverage report written to coverage.html"
+	@echo ""
+	@echo "Coverage Summary:"
+	@$(GO) tool cover -func=$(BIN_DIR)/coverage.out | grep total
 
 .PHONY: lint
 lint: ## Run go vet
@@ -228,12 +255,12 @@ helm-local-checks: ## Run local checks against port-forwarded service (/healthz 
 	@status="$$(curl -s -o /tmp/github-app-webhook-check.out -w '%{http_code}' -X POST http://127.0.0.1:$(LOCAL_PORT)/webhook \
 		-H 'content-type: application/json' \
 		-d '{}')"; \
-	if [ "$$status" != "400" ]; then \
-		echo "expected POST /webhook to return HTTP 400, got $$status" >&2; \
+	if [ "$$status" != "401" ]; then \
+		echo "expected POST /webhook to return HTTP 401, got $$status" >&2; \
 		cat /tmp/github-app-webhook-check.out >&2; \
 		exit 1; \
 	fi; \
-	echo "POST /webhook returned expected HTTP 400"
+	echo "POST /webhook returned expected HTTP 401"
 
 .PHONY: helm-status
 helm-status: ## Show release and Kubernetes resource status
