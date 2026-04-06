@@ -63,7 +63,7 @@ jobs:
           name: coverage
           path: coverage.out
 
-      - name: Update coverage badge payload
+      - name: Update coverage badge files
         run: |
           total="$(go tool cover -func=coverage.out | awk '/^total:/ {print $NF}')"
           pct="${total%%%}"
@@ -81,17 +81,27 @@ jobs:
           {"schemaVersion":1,"label":"coverage","message":"${total}","color":"${color}"}
           EOF
 
+          badge_url="https://img.shields.io/badge/coverage-${pct}%25-${color}"
+          awk -v badge_url="$badge_url" '
+            /^\[!\[Coverage\]\(https:\/\/img\.shields\.io\/badge\/coverage-/ {
+              print "[![Coverage](" badge_url ")](https://github.com/bwalsh/github-app/actions/workflows/ci.yml)"
+              next
+            }
+            { print }
+          ' README.md > README.md.tmp
+          mv README.md.tmp README.md
+
       - name: Commit coverage badge update
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
-          if git diff --quiet -- .github/badges/coverage.json; then
+          if git diff --quiet -- .github/badges/coverage.json README.md; then
             echo "Coverage badge is up to date"
             exit 0
           fi
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .github/badges/coverage.json
+          git add .github/badges/coverage.json README.md
           git commit -m "ci: update coverage badge [skip ci]"
           git push
 

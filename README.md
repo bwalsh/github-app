@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/bwalsh/github-app/actions/workflows/ci.yml/badge.svg)](https://github.com/bwalsh/github-app/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/bwalsh/github-app)](https://github.com/bwalsh/github-app/releases)
-[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/bwalsh/github-app/main/.github/badges/coverage.json)](https://github.com/bwalsh/github-app/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/badge/coverage-77.1%25-yellowgreen)](https://github.com/bwalsh/github-app/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A GitHub App for webhook event registration and handling, written in Go.
