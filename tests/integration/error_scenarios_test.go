@@ -122,9 +122,13 @@ func TestMultipleInstallationsSameRepo(t *testing.T) {
 	}
 
 	// Verify job enqueued with correct tenant
-	job1 := <-q.Jobs()
-	if job1.TenantName != "tenant-100-50" {
-		t.Errorf("job1 tenant: got %q, want tenant-100-50", job1.TenantName)
+	select {
+	case job1 := <-q.Jobs():
+		if job1.TenantName != "tenant-100-50" {
+			t.Errorf("job1 tenant: got %q, want tenant-100-50", job1.TenantName)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for first job to be enqueued")
 	}
 
 	// Push from installation 200
@@ -151,7 +155,12 @@ func TestMultipleInstallationsSameRepo(t *testing.T) {
 	}
 
 	// Verify job enqueued with correct tenant
-	job2 := <-q.Jobs()
+	var job2 queue.Job
+	select {
+	case job2 = <-q.Jobs():
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for second job to be enqueued")
+	}
 	if job2.TenantName != "tenant-200-50" {
 		t.Errorf("job2 tenant: got %q, want tenant-200-50", job2.TenantName)
 	}
@@ -171,10 +180,12 @@ func TestConcurrentWebhookProcessing(t *testing.T) {
 	// Register multiple tenants
 	for i := 1; i <= 5; i++ {
 		key := tenant.Key{InstallationID: int64(100 + i), RepositoryID: int64(200 + i)}
-		_ = reg.Register(key, &tenant.Tenant{
+		if err := reg.Register(key, &tenant.Tenant{
 			Name:      fmt.Sprintf("tenant-%d", i),
 			Namespace: fmt.Sprintf("ns-%d", i),
-		})
+		}); err != nil {
+			t.Fatalf("failed to register tenant %v: %v", key, err)
+		}
 	}
 
 	h := handler.NewWithDeps(secret, reg, q)
@@ -214,16 +225,16 @@ func TestConcurrentWebhookProcessing(t *testing.T) {
 
 	// Should have enqueued all 5 jobs
 	jobCount := 0
-	for {
+	deadline := time.After(2 * time.Second)
+	for jobCount < 5 {
 		select {
 		case <-q.Jobs():
 			jobCount++
-		default:
-			goto done
+		case <-deadline:
+			t.Fatalf("expected 5 jobs enqueued, got %d", jobCount)
 		}
 	}
-done:
-	if jobCount < 1 {
-		t.Errorf("expected at least 1 job enqueued, got %d", jobCount)
+	if jobCount != 5 {
+		t.Errorf("expected 5 jobs enqueued, got %d", jobCount)
 	}
 }

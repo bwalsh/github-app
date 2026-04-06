@@ -153,12 +153,6 @@ Added dedicated `test-verification` job that explicitly tests each feature categ
    - ✅ Multi-installation isolation
    - ✅ Concurrent webhook processing
 
-5. **Verify all tests pass together**
-   ```bash
-   go test -race -count=1 ./...
-   ```
-   - ✅ Final comprehensive validation
-
 ### CI Workflow Structure
 
 ```

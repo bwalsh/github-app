@@ -113,11 +113,16 @@ func (h *Handler) verifySignature(body []byte, signature string) bool {
 		return false
 	}
 
+	provided, err := hex.DecodeString(strings.TrimSpace(parts[1]))
+	if err != nil || len(provided) != sha256.Size {
+		return false
+	}
+
 	hash := hmac.New(sha256.New, []byte(h.secret))
 	hash.Write(body)
-	expected := hex.EncodeToString(hash.Sum(nil))
+	expected := hash.Sum(nil)
 
-	return hmac.Equal([]byte(parts[1]), []byte(expected))
+	return hmac.Equal(provided, expected)
 }
 
 func (h *Handler) handlePush(w http.ResponseWriter, body []byte) {
