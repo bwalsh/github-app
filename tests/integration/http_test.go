@@ -93,11 +93,12 @@ func TestWebhookHTTPEndpoint_InvalidSignature(t *testing.T) {
 	req.Header.Set("X-Hub-Signature-256", "sha256=invalid")
 
 	resp, _ := http.DefaultClient.Do(req)
-	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("expected 401 for invalid signature, got %d", resp.StatusCode)
 	}
+	defer resp.Body.Close()
+
 }
 
 func TestWebhookHTTPEndpoint_MissingSignature(t *testing.T) {
@@ -131,11 +132,12 @@ func TestWebhookHTTPEndpoint_MissingSignature(t *testing.T) {
 	// No signature header
 
 	resp, _ := http.DefaultClient.Do(req)
-	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("expected 401 for missing signature, got %d", resp.StatusCode)
 	}
+	defer resp.Body.Close()
+
 }
 
 func TestHealthEndpoint(t *testing.T) {
