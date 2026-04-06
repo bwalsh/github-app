@@ -228,20 +228,20 @@ go test -bench=. -benchmem ./tests/load
 ## Documentation Reference
 
 ### See Also:
-- **Full Review:** [`DEVOPS_TEST_REVIEW.md`](DEVOPS_TEST_REVIEW.md)
+- **Full Review:** [`DEVOPS_TEST_REVIEW.md`](../DEVOPS_TEST_REVIEW.md)
   - Detailed analysis of each test
   - Gap descriptions with real-world scenarios
   - DevOps readiness scorecard
 
-- **Implementation Guide:** [`MISSING_TEST_IMPLEMENTATION.md`](MISSING_TEST_IMPLEMENTATION.md)
+- **Implementation Guide:** [`MISSING_TEST_IMPLEMENTATION.md`](../MISSING_TEST_IMPLEMENTATION.md)
   - Ready-to-copy code for all critical fixes
   - Integration test examples
   - Error scenario test templates
 
 - **Architecture Docs:**
-  - [`docs/architecture/persistence-layer.md`](docs/architecture/persistence-layer.md)
-  - [`docs/flows/github-integration-flows.md`](docs/flows/github-integration-flows.md)
-  - [`docs/deploy/helm-operator-guide.md`](docs/deploy/helm-operator-guide.md)
+  - [`docs/architecture/persistence-layer.md`](architecture/persistence-layer.md)
+  - [`docs/flows/github-integration-flows.md`](flows/github-integration-flows.md)
+  - [`docs/deploy/helm-operator-guide.md`](deploy/helm-operator-guide.md)
 
 ---
 
